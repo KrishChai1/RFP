@@ -119,13 +119,38 @@ class RFPAnalyzer:
     def initialize_claude(self):
         """Initialize Claude API client"""
         try:
-            api_key = st.secrets.get("CLAUDE_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY")
+            # Try multiple possible secret key names
+            api_key = (st.secrets.get("CLAUDE_API_KEY") or 
+                      st.secrets.get("ANTHROPIC_API_KEY") or 
+                      st.secrets.get("claude_api_key") or 
+                      st.secrets.get("anthropic_api_key"))
+            
             if api_key:
                 self.claude_client = anthropic.Anthropic(api_key=api_key)
+                # Test the connection
+                try:
+                    # Make a simple test call to verify the API key works
+                    test_response = self.claude_client.messages.create(
+                        model="claude-3-5-sonnet-20241022",
+                        max_tokens=10,
+                        messages=[{"role": "user", "content": "Hello"}]
+                    )
+                    st.success("✅ Claude API connected successfully!")
+                except Exception as test_error:
+                    st.error(f"❌ Claude API test failed: {str(test_error)}")
+                    st.error("Please check your API key and try again.")
+                    self.claude_client = None
             else:
-                st.error("Claude API key not found in secrets. Please add CLAUDE_API_KEY to your Streamlit secrets.")
+                st.error("❌ Claude API key not found in secrets. Please add CLAUDE_API_KEY or ANTHROPIC_API_KEY to your Streamlit secrets.")
+                st.info("""
+                **How to add your API key:**
+                1. Create a `.streamlit/secrets.toml` file in your project
+                2. Add: `CLAUDE_API_KEY = "your_api_key_here"`
+                3. Or add it in Streamlit Cloud: Settings → Secrets
+                """)
         except Exception as e:
-            st.error(f"Error initializing Claude API: {str(e)}")
+            st.error(f"❌ Error initializing Claude API: {str(e)}")
+            self.claude_client = None
     
     def extract_text_from_file(self, uploaded_file):
         """Extract text from uploaded file based on file type"""
@@ -324,7 +349,7 @@ class RFPAnalyzer:
         
         try:
             response = self.claude_client.messages.create(
-                model="claude-3-sonnet-20240229",
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=4000,
                 temperature=0.3,
                 messages=[{"role": "user", "content": prompt}]
@@ -344,7 +369,35 @@ class RFPAnalyzer:
                 return None
                 
         except Exception as e:
-            st.error(f"Error analyzing document with Claude: {str(e)}")
+            error_msg = str(e)
+            st.error(f"❌ Error analyzing document with Claude: {error_msg}")
+            
+            # Provide specific guidance based on error type
+            if "404" in error_msg:
+                st.error("🔍 Model not found. Using backup model...")
+                # Try with a different model
+                try:
+                    response = self.claude_client.messages.create(
+                        model="claude-3-sonnet-20240229",  # Fallback model
+                        max_tokens=4000,
+                        temperature=0.3,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    response_text = response.content[0].text
+                    json_start = response_text.find('{')
+                    json_end = response_text.rfind('}') + 1
+                    
+                    if json_start != -1 and json_end != -1:
+                        json_text = response_text[json_start:json_end]
+                        return json.loads(json_text)
+                except Exception as fallback_error:
+                    st.error(f"❌ Fallback model also failed: {str(fallback_error)}")
+                    return None
+            elif "authentication" in error_msg.lower():
+                st.error("🔑 Authentication failed. Please check your API key.")
+            elif "rate_limit" in error_msg.lower():
+                st.error("⏰ Rate limit exceeded. Please wait a moment and try again.")
+            
             return None
     
     def ask_question_about_rfp(self, question, document_text, analysis_results):
@@ -375,14 +428,27 @@ class RFPAnalyzer:
         
         try:
             response = self.claude_client.messages.create(
-                model="claude-3-sonnet-20240229",
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=1000,
                 temperature=0.3,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.content[0].text
         except Exception as e:
-            return f"Error getting response: {str(e)}"
+            error_msg = str(e)
+            if "404" in error_msg:
+                # Try fallback model
+                try:
+                    response = self.claude_client.messages.create(
+                        model="claude-3-sonnet-20240229",
+                        max_tokens=1000,
+                        temperature=0.3,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    return response.content[0].text
+                except Exception as fallback_error:
+                    return f"❌ Error getting response: {str(fallback_error)}"
+            return f"❌ Error getting response: {error_msg}"
 
 def create_scoring_chart(scores):
     """Create a radar chart for scoring visualization"""
@@ -758,55 +824,72 @@ def main():
         with tab5:
             st.subheader("💬 Ask Questions About This RFP")
             
-            # Display chat history
-            for i, (question, answer) in enumerate(st.session_state.chat_history):
-                st.markdown(f"""
-                <div class="chat-message user-message">
-                    <strong>You:</strong> {question}
-                </div>
-                """, unsafe_allow_html=True)
+            # Clear chat button
+            if st.button("🗑️ Clear Chat History"):
+                st.session_state.chat_history = []
+                st.rerun()
+            
+            # Question input form
+            with st.form("question_form"):
+                question = st.text_input(
+                    "Ask a question about the RFP:",
+                    placeholder="e.g., What are the main technical risks? How competitive is the pricing?",
+                    key="question_input"
+                )
                 
-                st.markdown(f"""
-                <div class="chat-message assistant-message">
-                    <strong>AI Assistant:</strong> {answer}
-                </div>
-                """, unsafe_allow_html=True)
+                submitted = st.form_submit_button("🚀 Send Question", type="primary")
+                
+                if submitted and question.strip():
+                    with st.spinner("🤔 Analyzing your question..."):
+                        answer = analyzer.ask_question_about_rfp(
+                            question, 
+                            st.session_state.document_text, 
+                            st.session_state.analysis_results
+                        )
+                        st.session_state.chat_history.append((question, answer))
+                        st.rerun()
             
-            # Question input
-            question = st.text_input(
-                "Ask a question about the RFP:",
-                placeholder="e.g., What are the main technical risks? How competitive is the pricing?"
-            )
-            
-            col1, col2 = st.columns([1, 4])
-            with col1:
-                if st.button("Send Question", type="primary"):
-                    if question.strip():
-                        with st.spinner("Getting answer..."):
-                            answer = analyzer.ask_question_about_rfp(
-                                question, 
-                                st.session_state.document_text, 
-                                st.session_state.analysis_results
-                            )
-                            st.session_state.chat_history.append((question, answer))
-                            st.rerun()
+            # Display chat history
+            if st.session_state.chat_history:
+                st.subheader("💭 Chat History")
+                for i, (q, a) in enumerate(reversed(st.session_state.chat_history[-5:])):  # Show last 5 conversations
+                    with st.container():
+                        st.markdown(f"""
+                        <div class="chat-message user-message">
+                            <strong>🙋 You:</strong> {q}
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        st.markdown(f"""
+                        <div class="chat-message assistant-message">
+                            <strong>🤖 AI Assistant:</strong> {a}
+                        </div>
+                        """, unsafe_allow_html=True)
+                        st.divider()
             
             # Quick question buttons
-            st.subheader("Quick Questions")
+            st.subheader("⚡ Quick Questions")
+            st.write("Click on any question below for instant answers:")
+            
             quick_questions = [
-                "What are the main technical risks?",
-                "How competitive is the pricing?",
-                "What is the implementation timeline?",
-                "What are the key requirements?",
+                "What are the main technical risks identified?",
+                "How competitive is the pricing compared to market rates?",
+                "What is the proposed implementation timeline?",
+                "What are the most critical requirements?",
                 "How experienced is the proposed team?",
-                "What are the next steps?"
+                "What are the recommended next steps?",
+                "What security measures are proposed?",
+                "What are the potential cost overrun risks?",
+                "How scalable is the proposed solution?",
+                "What integration challenges might arise?"
             ]
             
+            # Create columns for better layout
             cols = st.columns(2)
             for i, q in enumerate(quick_questions):
                 with cols[i % 2]:
-                    if st.button(q, key=f"quick_{i}"):
-                        with st.spinner("Getting answer..."):
+                    if st.button(f"❓ {q}", key=f"quick_{i}", use_container_width=True):
+                        with st.spinner("🔍 Getting answer..."):
                             answer = analyzer.ask_question_about_rfp(
                                 q, 
                                 st.session_state.document_text, 
@@ -814,6 +897,23 @@ def main():
                             )
                             st.session_state.chat_history.append((q, answer))
                             st.rerun()
+            
+            # Help section
+            with st.expander("💡 Tips for Better Questions"):
+                st.write("""
+                **Good questions to ask:**
+                - Specific technical details: "What database technology is proposed?"
+                - Risk assessments: "What are the biggest risks to timeline?"
+                - Comparative analysis: "How does this compare to industry standards?"
+                - Implementation details: "What is the testing strategy?"
+                - Cost analysis: "What are the main cost drivers?"
+                
+                **Tips:**
+                - Be specific rather than general
+                - Ask about aspects that matter most to your decision
+                - Request clarification on complex technical points
+                - Ask for recommendations and next steps
+                """)
 
 if __name__ == "__main__":
     main()

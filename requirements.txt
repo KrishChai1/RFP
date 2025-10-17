@@ -1,0 +1,42 @@
+# Core Streamlit and Web Framework
+streamlit>=1.28.0
+
+# Anthropic Claude API
+anthropic>=0.3.0
+
+# Document Processing Libraries
+PyPDF2>=3.0.1
+python-docx>=0.8.11
+python-pptx>=0.6.21
+
+# Data Analysis and Visualization
+pandas>=2.0.0
+numpy>=1.24.0
+plotly>=5.15.0
+
+# Additional Utilities
+Pillow>=10.0.0
+requests>=2.31.0
+python-dateutil>=2.8.2
+
+# Optional: Enhanced PDF processing (alternative to PyPDF2)
+pdfplumber>=0.9.0
+
+# Optional: Enhanced text processing
+nltk>=3.8.1
+
+# Optional: For better Word document handling
+lxml>=4.9.3
+
+# Security and Environment
+python-dotenv>=1.0.0
+
+# Optional: For advanced text analysis
+textstat>=0.7.3
+spacy>=3.6.0
+
+# Optional: For better error handling and logging
+loguru>=0.7.0
+
+# Optional: For caching and performance
+streamlit-extras>=0.3.0

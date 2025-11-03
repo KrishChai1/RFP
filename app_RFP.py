@@ -3,6 +3,7 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Enterprise platform for evaluating and selecting logistics service providers
 Supporting Warehouse, Customer Service Operations, and Fulfillment Services
+Full document upload support for single consolidated or multiple service-specific RFPs
 """
 
 import streamlit as st
@@ -46,6 +47,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Initialize session state
+if 'workflow_stages' not in st.session_state:
+    st.session_state.workflow_stages = None
+if 'vendors' not in st.session_state:
+    st.session_state.vendors = {}
+if 'rfp_documents' not in st.session_state:
+    st.session_state.rfp_documents = {}
+if 'vendor_documents' not in st.session_state:
+    st.session_state.vendor_documents = {}
+
 # Professional CSS styling
 st.markdown("""
 <style>
@@ -85,7 +96,8 @@ st.markdown("""
     
     .stage-pending {
         border-left-color: #94a3b8;
-        opacity: 0.7;
+        background: #f8fafc;
+        opacity: 0.8;
     }
     
     .stage-active {
@@ -112,6 +124,12 @@ st.markdown("""
         box-shadow: 0 3px 10px rgba(0,0,0,0.1);
         position: relative;
         border: 2px solid #e5e7eb;
+        transition: all 0.3s;
+    }
+    
+    .vendor-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.15);
     }
     
     .vendor-selected {
@@ -138,12 +156,6 @@ st.markdown("""
         border: 2px solid #e5e7eb;
         cursor: pointer;
         transition: all 0.3s;
-    }
-    
-    .service-model-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        border-color: var(--secondary);
     }
     
     .service-model-selected {
@@ -186,6 +198,32 @@ st.markdown("""
     .service-cso { background: #fce7f3; color: #a21caf; }
     .service-csg { background: #f0fdfa; color: #0f766e; }
     
+    .document-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .document-upload-zone {
+        border: 2px dashed var(--secondary);
+        border-radius: 10px;
+        padding: 2rem;
+        text-align: center;
+        background: #f0f9ff;
+        margin: 1rem 0;
+        transition: all 0.3s;
+    }
+    
+    .document-upload-zone:hover {
+        border-color: var(--primary);
+        background: #e0f2fe;
+    }
+    
     .progress-bar {
         background: #e5e7eb;
         height: 30px;
@@ -205,23 +243,6 @@ st.markdown("""
         transition: width 0.5s ease;
     }
     
-    .rfp-info-card {
-        background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
-        border-radius: 10px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        border-left: 4px solid var(--info);
-    }
-    
-    .document-upload-zone {
-        border: 2px dashed var(--secondary);
-        border-radius: 10px;
-        padding: 2rem;
-        text-align: center;
-        background: #f0f9ff;
-        margin: 1rem 0;
-    }
-    
     .test-mode-banner {
         background: linear-gradient(90deg, #8b5cf6, #ec4899);
         color: white;
@@ -230,6 +251,24 @@ st.markdown("""
         font-weight: bold;
         margin-bottom: 1rem;
         border-radius: 5px;
+        animation: gradient 3s ease infinite;
+    }
+    
+    @keyframes gradient {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
+    .action-button {
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        font-weight: 500;
+        transition: all 0.3s;
+    }
+    
+    .action-button:hover {
+        transform: translateY(-2px);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -264,31 +303,34 @@ class ServiceType:
     def get_requirements(service):
         requirements = {
             ServiceType.WAREHOUSE: [
-                "Storage capacity (sq ft)",
+                "Storage capacity (minimum sq ft)",
                 "Temperature-controlled zones",
                 "24/7 operations capability",
-                "Inventory management systems",
-                "Cross-docking capabilities"
+                "Inventory management systems (WMS)",
+                "Cross-docking capabilities",
+                "Security measures and certifications"
             ],
             ServiceType.CSO: [
-                "RMA processing",
-                "Returns management",
-                "Customer support",
+                "RMA processing capability",
+                "Returns management system",
+                "Customer support (24/7)",
                 "Replacement fulfillment",
-                "Quality inspection"
+                "Quality inspection processes",
+                "Response time SLAs"
             ],
             ServiceType.CSG: [
-                "Kitting services",
+                "Kitting services capacity",
                 "Packaging capabilities",
                 "Assembly operations",
                 "Labeling services",
-                "Custom fulfillment"
+                "Custom fulfillment solutions",
+                "Quality control processes"
             ]
         }
         return requirements.get(service, [])
 
 class WorkflowStage:
-    """RFP workflow stages"""
+    """RFP workflow stages with proper state management"""
     def __init__(self, stage_id: str, stage_num: int, name: str, description: str,
                  required_docs: List[str], deliverables: List[str], duration: str):
         self.stage_id = stage_id
@@ -305,38 +347,142 @@ class WorkflowStage:
         self.documents = {}
         
     def can_start(self, previous_stage) -> bool:
+        """Check if stage can be started"""
         if previous_stage is None:
             return True
         return previous_stage.status == "complete"
     
     def start(self):
+        """Start the workflow stage"""
         self.status = "active"
         self.start_date = datetime.now()
         self.progress = 10
+        return True
         
     def complete(self):
+        """Complete the workflow stage"""
         self.status = "complete"
         self.end_date = datetime.now()
         self.progress = 100
+        return True
         
     def update_progress(self, progress: int):
+        """Update stage progress"""
         self.progress = min(100, max(0, progress))
         if self.progress == 100 and self.status != "complete":
             self.complete()
+        return True
+
+class DocumentManager:
+    """Manages document uploads and extraction"""
+    
+    @staticmethod
+    def extract_text_from_pdf(file) -> str:
+        """Extract text from PDF file"""
+        try:
+            pdf_reader = PyPDF2.PdfReader(file)
+            text = ""
+            for page in pdf_reader.pages:
+                text += page.extract_text() + "\n"
+            return text
+        except Exception as e:
+            st.error(f"Error reading PDF: {str(e)}")
+            return ""
+    
+    @staticmethod
+    def extract_text_from_docx(file) -> str:
+        """Extract text from Word document"""
+        try:
+            doc = docx.Document(file)
+            text = ""
+            for paragraph in doc.paragraphs:
+                text += paragraph.text + "\n"
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        text += cell.text + "\t"
+                    text += "\n"
+            return text
+        except Exception as e:
+            st.error(f"Error reading DOCX: {str(e)}")
+            return ""
+    
+    @staticmethod
+    def extract_text_from_file(uploaded_file) -> Dict:
+        """Extract text and metadata from uploaded file"""
+        file_info = {
+            "name": uploaded_file.name,
+            "type": uploaded_file.type,
+            "size": uploaded_file.size,
+            "content": "",
+            "upload_date": datetime.now()
+        }
+        
+        if "pdf" in uploaded_file.type:
+            file_info["content"] = DocumentManager.extract_text_from_pdf(uploaded_file)
+        elif "wordprocessingml" in uploaded_file.type or uploaded_file.name.endswith('.docx'):
+            file_info["content"] = DocumentManager.extract_text_from_docx(uploaded_file)
+        elif "text" in uploaded_file.type:
+            file_info["content"] = str(uploaded_file.read(), "utf-8")
+        else:
+            file_info["content"] = "Binary file - content extraction not supported"
+        
+        return file_info
+    
+    @staticmethod
+    def identify_document_type(content: str, filename: str) -> Dict:
+        """Identify document type and extract key information"""
+        doc_type = {
+            "is_rfp": False,
+            "is_sow": False,
+            "is_pricing": False,
+            "is_technical": False,
+            "services_mentioned": [],
+            "model_type": None
+        }
+        
+        content_lower = content.lower()
+        filename_lower = filename.lower()
+        
+        # Check document type
+        if "request for proposal" in content_lower or "rfp" in filename_lower:
+            doc_type["is_rfp"] = True
+        if "statement of work" in content_lower or "sow" in filename_lower:
+            doc_type["is_sow"] = True
+        if "pricing" in content_lower or "cost" in content_lower:
+            doc_type["is_pricing"] = True
+        if "technical" in content_lower:
+            doc_type["is_technical"] = True
+        
+        # Check services mentioned
+        if "warehouse" in content_lower:
+            doc_type["services_mentioned"].append(ServiceType.WAREHOUSE)
+        if "customer service" in content_lower or "cso" in content_lower or "rma" in content_lower:
+            doc_type["services_mentioned"].append(ServiceType.CSO)
+        if "csg" in content_lower or "kitting" in content_lower or "packaging" in content_lower:
+            doc_type["services_mentioned"].append(ServiceType.CSG)
+        
+        # Check service model
+        if "consolidated" in content_lower:
+            doc_type["model_type"] = ServiceModel.CONSOLIDATED
+        elif "standalone" in content_lower:
+            doc_type["model_type"] = ServiceModel.STANDALONE
+        
+        return doc_type
 
 class VendorProfile:
     """Vendor profile for RFP response"""
     def __init__(self, vendor_id: str, name: str, service_model: str):
         self.vendor_id = vendor_id
         self.name = name
-        self.service_model = service_model  # Standalone or Consolidated
-        self.services_offered = []  # Which services they're bidding for
+        self.service_model = service_model
+        self.services_offered = []
         self.registration_date = datetime.now()
         self.documents = {}
         self.pricing = {}
         self.scores = {}
         self.overall_score = 0
-        self.status = "Registered"  # Registered, Submitted, Evaluated, Shortlisted, Selected, Rejected
+        self.status = "Registered"
         self.submission_date = None
         self.evaluation_date = None
         self.capabilities = {}
@@ -349,7 +495,9 @@ class VendorProfile:
         if service_type not in self.services_offered:
             self.services_offered.append(service_type)
     
-    def submit_proposal(self):
+    def submit_proposal(self, documents: Dict = None):
+        if documents:
+            self.documents.update(documents)
         self.submission_date = datetime.now()
         self.status = "Submitted"
     
@@ -359,19 +507,20 @@ class VendorProfile:
         self.evaluation_date = datetime.now()
         self.status = "Evaluated"
         
-        # Auto-categorize strengths and weaknesses
         self.strengths = [k.replace('_', ' ').title() for k, v in scores.items() if v >= 85]
         self.weaknesses = [k.replace('_', ' ').title() for k, v in scores.items() if v < 70]
 
 class RFPManager:
-    """Main RFP management system"""
+    """Main RFP management system with persistent state"""
     def __init__(self):
         self.rfp_details = self._initialize_rfp()
-        self.workflow_stages = self._initialize_workflow()
-        self.vendors = {}
-        self.service_requirements = {}
+        
+        # Use session state for persistence
+        if st.session_state.workflow_stages is None:
+            st.session_state.workflow_stages = self._initialize_workflow()
+        
         self.evaluation_criteria = self._get_evaluation_criteria()
-        self.selected_vendors = {}  # Service type -> Vendor ID mapping
+        self.selected_vendors = {}
         self.test_mode = False
         
     def _initialize_rfp(self):
@@ -524,6 +673,18 @@ class RFPManager:
             }
         }
     
+    def get_workflow_progress(self) -> int:
+        """Calculate overall workflow progress"""
+        stages = st.session_state.workflow_stages
+        if not stages:
+            return 0
+        
+        total_stages = len(stages)
+        completed = sum(1 for s in stages.values() if s.status == "complete")
+        active_progress = sum(s.progress/100 for s in stages.values() if s.status == "active")
+        
+        return int(((completed + active_progress) / total_stages) * 100)
+    
     def register_vendor(self, name: str, service_model: str, services: List[str]) -> VendorProfile:
         """Register a new vendor"""
         vendor_id = f"VND-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
@@ -532,324 +693,35 @@ class RFPManager:
         for service in services:
             vendor.add_service(service)
         
-        self.vendors[vendor_id] = vendor
+        st.session_state.vendors[vendor_id] = vendor
         return vendor
     
     def evaluate_vendor(self, vendor_id: str) -> Dict:
         """Evaluate a vendor's proposal"""
-        if vendor_id not in self.vendors:
+        if vendor_id not in st.session_state.vendors:
             return {}
         
-        vendor = self.vendors[vendor_id]
+        vendor = st.session_state.vendors[vendor_id]
         
-        # Generate scores based on service model
+        # Generate scores based on service model and documents
         base_score = 70
         
         # Bonus for consolidated model
         if vendor.service_model == ServiceModel.CONSOLIDATED:
             base_score += 5
         
+        # Bonus for complete documentation
+        if len(vendor.documents) > 3:
+            base_score += 5
+        
         # Score each criterion
         scores = {}
         for criterion, details in self.evaluation_criteria.items():
-            # Add some variation
             variation = random.uniform(-10, 15)
             scores[criterion] = min(100, max(50, base_score + variation))
         
         vendor.evaluate(scores)
         return scores
-    
-    def select_vendors(self, selections: Dict[str, str]):
-        """Select vendors for services"""
-        self.selected_vendors = selections
-        
-        # Update vendor statuses
-        for vendor_id, vendor in self.vendors.items():
-            if vendor_id in selections.values():
-                vendor.status = "Selected"
-                vendor.decision = "Winner"
-            elif vendor.status == "Evaluated":
-                vendor.status = "Rejected"
-                vendor.decision = "Not Selected"
-    
-    def get_workflow_progress(self) -> int:
-        """Calculate overall workflow progress"""
-        total_stages = len(self.workflow_stages)
-        completed = sum(1 for s in self.workflow_stages.values() if s.status == "complete")
-        active_progress = sum(s.progress/100 for s in self.workflow_stages.values() if s.status == "active")
-        
-        return int(((completed + active_progress) / total_stages) * 100)
-
-# ========================================
-# SAMPLE DATA GENERATOR
-# ========================================
-
-class SampleDataGenerator:
-    """Generate sample data for testing"""
-    
-    def __init__(self):
-        self.vendor_names = [
-            "Global Logistics Partners LLC",
-            "Integrated Warehouse Solutions Inc.",
-            "Premier Distribution Services",
-            "NextGen Fulfillment Corp.",
-            "Strategic Supply Chain Co.",
-            "National Logistics Network",
-            "Express Warehouse Group",
-            "Unified Transport Solutions"
-        ]
-        
-        self.fake = Faker()
-    
-    def generate_rfp_document(self, services: List[str] = None) -> bytes:
-        """Generate sample RFP document"""
-        if not services:
-            services = ServiceType.get_all()
-        
-        doc = Document()
-        
-        # Title
-        title = doc.add_heading('REQUEST FOR PROPOSAL (RFP)', 0)
-        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        doc.add_heading('Logistics and Warehouse Services', 1)
-        
-        # RFP Details
-        doc.add_paragraph(f"RFP Number: RFP-{datetime.now().year}-{random.randint(1000, 9999)}")
-        doc.add_paragraph(f"Issue Date: {datetime.now().strftime('%B %d, %Y')}")
-        doc.add_paragraph(f"Due Date: {(datetime.now() + timedelta(days=30)).strftime('%B %d, %Y')}")
-        
-        # Executive Summary
-        doc.add_heading('1. Executive Summary', 1)
-        doc.add_paragraph(
-            "We are seeking qualified vendors to provide comprehensive logistics and warehouse services. "
-            "Vendors may bid for individual services (Standalone Model) or multiple integrated services "
-            "(Consolidated Model)."
-        )
-        
-        # Service Models
-        doc.add_heading('2. Service Models', 1)
-        
-        doc.add_heading('2.1 Standalone Model', 2)
-        doc.add_paragraph("Single vendor for one specific service:")
-        for service in services:
-            doc.add_paragraph(f"• {service} only", style='List Bullet')
-        
-        doc.add_heading('2.2 Consolidated Model', 2)
-        doc.add_paragraph("Single vendor for multiple integrated services:")
-        doc.add_paragraph(f"• All services: {', '.join(services)}", style='List Bullet')
-        
-        # Service Requirements
-        doc.add_heading('3. Service Requirements', 1)
-        
-        for service in services:
-            doc.add_heading(f'3.{services.index(service)+1} {service}', 2)
-            requirements = ServiceType.get_requirements(service)
-            for req in requirements:
-                doc.add_paragraph(f"• {req}", style='List Bullet')
-        
-        # Evaluation Criteria
-        doc.add_heading('4. Evaluation Criteria', 1)
-        criteria_list = [
-            "Technical Capability (25%)",
-            "Operational Excellence (20%)",
-            "Pricing Competitiveness (20%)",
-            "Compliance & Security (15%)",
-            "Experience & References (10%)",
-            "Innovation & Flexibility (10%)"
-        ]
-        for criterion in criteria_list:
-            doc.add_paragraph(f"• {criterion}", style='List Bullet')
-        
-        # Submission Requirements
-        doc.add_heading('5. Submission Requirements', 1)
-        doc.add_paragraph("Vendors must submit:")
-        submission_items = [
-            "Technical Proposal",
-            "Pricing Proposal (Standalone and/or Consolidated)",
-            "Company Profile",
-            "Financial Statements",
-            "Certifications (ISO, C-TPAT, TAPA)",
-            "Implementation Plan",
-            "References (minimum 3)"
-        ]
-        for item in submission_items:
-            doc.add_paragraph(f"• {item}", style='List Bullet')
-        
-        # Save to bytes
-        doc_io = io.BytesIO()
-        doc.save(doc_io)
-        doc_io.seek(0)
-        return doc_io.getvalue()
-    
-    def generate_vendor_proposals(self, vendor_name: str, service_model: str, 
-                                 services: List[str]) -> Dict[str, bytes]:
-        """Generate vendor proposal documents"""
-        proposals = {}
-        
-        # 1. Technical Proposal
-        tech_doc = Document()
-        tech_doc.add_heading(f'{vendor_name}', 0)
-        tech_doc.add_heading('Technical Proposal', 1)
-        
-        tech_doc.add_heading('Service Model', 2)
-        tech_doc.add_paragraph(f"We are proposing a {service_model} service model")
-        
-        tech_doc.add_heading('Services Offered', 2)
-        for service in services:
-            tech_doc.add_paragraph(f"• {service}", style='List Bullet')
-        
-        tech_doc.add_heading('Technical Capabilities', 2)
-        
-        if ServiceType.WAREHOUSE in services:
-            tech_doc.add_heading('Warehouse Capabilities', 3)
-            tech_doc.add_paragraph(f"• Total capacity: {random.randint(100000, 1000000):,} sq ft")
-            tech_doc.add_paragraph(f"• Locations: {random.randint(5, 50)} facilities")
-            tech_doc.add_paragraph("• Temperature-controlled zones available")
-            tech_doc.add_paragraph("• WMS: SAP EWM / Manhattan / Blue Yonder")
-        
-        if ServiceType.CSO in services:
-            tech_doc.add_heading('Customer Service Operations', 3)
-            tech_doc.add_paragraph("• RMA processing capability")
-            tech_doc.add_paragraph("• 24/7 customer support")
-            tech_doc.add_paragraph(f"• Average response time: {random.randint(1, 4)} hours")
-            tech_doc.add_paragraph("• Returns processing: Same-day")
-        
-        if ServiceType.CSG in services:
-            tech_doc.add_heading('Consumer Solutions Group', 3)
-            tech_doc.add_paragraph("• Kitting and assembly services")
-            tech_doc.add_paragraph("• Custom packaging capabilities")
-            tech_doc.add_paragraph("• Labeling and branding services")
-            tech_doc.add_paragraph(f"• Capacity: {random.randint(10000, 100000)} units/day")
-        
-        tech_io = io.BytesIO()
-        tech_doc.save(tech_io)
-        tech_io.seek(0)
-        proposals['Technical_Proposal.docx'] = tech_io.getvalue()
-        
-        # 2. Pricing Proposal
-        pricing_doc = Document()
-        pricing_doc.add_heading(f'{vendor_name}', 0)
-        pricing_doc.add_heading('Pricing Proposal', 1)
-        
-        pricing_doc.add_heading(f'{service_model} Model Pricing', 2)
-        
-        # Create pricing table
-        table = pricing_doc.add_table(rows=1, cols=3)
-        table.style = 'Light Grid Accent 1'
-        hdr_cells = table.rows[0].cells
-        hdr_cells[0].text = 'Service'
-        hdr_cells[1].text = 'Unit'
-        hdr_cells[2].text = 'Price'
-        
-        if ServiceType.WAREHOUSE in services:
-            row_cells = table.add_row().cells
-            row_cells[0].text = 'Warehouse Storage'
-            row_cells[1].text = 'Per pallet/month'
-            row_cells[2].text = f'${random.uniform(15, 30):.2f}'
-            
-            row_cells = table.add_row().cells
-            row_cells[0].text = 'Handling'
-            row_cells[1].text = 'Per unit'
-            row_cells[2].text = f'${random.uniform(1, 3):.2f}'
-        
-        if ServiceType.CSO in services:
-            row_cells = table.add_row().cells
-            row_cells[0].text = 'RMA Processing'
-            row_cells[1].text = 'Per return'
-            row_cells[2].text = f'${random.uniform(5, 15):.2f}'
-            
-            row_cells = table.add_row().cells
-            row_cells[0].text = 'Customer Support'
-            row_cells[1].text = 'Per ticket'
-            row_cells[2].text = f'${random.uniform(2, 8):.2f}'
-        
-        if ServiceType.CSG in services:
-            row_cells = table.add_row().cells
-            row_cells[0].text = 'Kitting'
-            row_cells[1].text = 'Per kit'
-            row_cells[2].text = f'${random.uniform(2, 5):.2f}'
-            
-            row_cells = table.add_row().cells
-            row_cells[0].text = 'Custom Packaging'
-            row_cells[1].text = 'Per unit'
-            row_cells[2].text = f'${random.uniform(1, 4):.2f}'
-        
-        # Add volume discounts
-        pricing_doc.add_heading('Volume Discounts', 3)
-        if service_model == ServiceModel.CONSOLIDATED:
-            pricing_doc.add_paragraph("• 10% discount for consolidated services")
-        pricing_doc.add_paragraph("• 5% discount for volumes over 10,000 units/month")
-        pricing_doc.add_paragraph("• 10% discount for volumes over 50,000 units/month")
-        
-        pricing_io = io.BytesIO()
-        pricing_doc.save(pricing_io)
-        pricing_io.seek(0)
-        proposals['Pricing_Proposal.docx'] = pricing_io.getvalue()
-        
-        # 3. Company Profile (PowerPoint)
-        prs = Presentation()
-        
-        # Title slide
-        title_slide = prs.slides.add_slide(prs.slide_layouts[0])
-        title_slide.shapes.title.text = vendor_name
-        title_slide.placeholders[1].text = f"Company Profile - {service_model} Services Provider"
-        
-        # Overview slide
-        overview_slide = prs.slides.add_slide(prs.slide_layouts[1])
-        overview_slide.shapes.title.text = 'Company Overview'
-        body = overview_slide.placeholders[1]
-        tf = body.text_frame
-        tf.text = f'• Established: {random.randint(1980, 2015)}'
-        tf.add_paragraph().text = f'• Employees: {random.randint(500, 10000):,}'
-        tf.add_paragraph().text = f'• Annual Revenue: ${random.randint(50, 500)}M'
-        tf.add_paragraph().text = f'• Service Model: {service_model}'
-        tf.add_paragraph().text = f'• Services: {", ".join(services)}'
-        
-        # Certifications slide
-        cert_slide = prs.slides.add_slide(prs.slide_layouts[1])
-        cert_slide.shapes.title.text = 'Certifications & Compliance'
-        body = cert_slide.placeholders[1]
-        tf = body.text_frame
-        certs = ['• ISO 9001:2015', '• ISO 14001:2015', '• C-TPAT Certified', 
-                '• TAPA FSR Level A', '• SOC 2 Type II']
-        tf.text = certs[0]
-        for cert in certs[1:]:
-            tf.add_paragraph().text = cert
-        
-        ppt_io = io.BytesIO()
-        prs.save(ppt_io)
-        ppt_io.seek(0)
-        proposals['Company_Profile.pptx'] = ppt_io.getvalue()
-        
-        return proposals
-    
-    def generate_test_vendors(self, count: int = 5) -> List[Dict]:
-        """Generate test vendor data"""
-        vendors = []
-        
-        # Mix of standalone and consolidated vendors
-        for i in range(count):
-            if i < 2:  # First 2 are consolidated
-                service_model = ServiceModel.CONSOLIDATED
-                services = ServiceType.get_all()
-            else:  # Rest are standalone
-                service_model = ServiceModel.STANDALONE
-                services = [random.choice(ServiceType.get_all())]
-            
-            vendor_data = {
-                "name": self.vendor_names[i % len(self.vendor_names)],
-                "service_model": service_model,
-                "services": services,
-                "proposals": self.generate_vendor_proposals(
-                    self.vendor_names[i % len(self.vendor_names)],
-                    service_model,
-                    services
-                )
-            }
-            vendors.append(vendor_data)
-        
-        return vendors
 
 # ========================================
 # UI COMPONENTS
@@ -865,43 +737,265 @@ def render_header():
     </div>
     """, unsafe_allow_html=True)
 
-def render_rfp_overview(manager: RFPManager):
-    """Render RFP overview section"""
-    st.header("📋 Current RFP Overview")
+def render_document_upload():
+    """Render comprehensive document upload section"""
+    st.header("📄 Document Management")
     
-    col1, col2 = st.columns([2, 1])
+    tab1, tab2, tab3 = st.tabs(["📤 Upload RFP Documents", "📥 Vendor Proposals", "📁 View Documents"])
     
-    with col1:
-        st.markdown(f"""
-        <div class="rfp-info-card">
-            <h3>{manager.rfp_details['title']}</h3>
-            <p><strong>RFP ID:</strong> {manager.rfp_details['rfp_id']}</p>
-            <p><strong>Issue Date:</strong> {manager.rfp_details['issue_date'].strftime('%B %d, %Y')}</p>
-            <p><strong>Due Date:</strong> {manager.rfp_details['due_date'].strftime('%B %d, %Y')}</p>
-            <p><strong>Budget Range:</strong> {manager.rfp_details['budget_range']}</p>
-            <p><strong>Contract Duration:</strong> {manager.rfp_details['contract_duration']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("### Services Required")
-        for service in manager.rfp_details['services_required']:
-            if service == ServiceType.WAREHOUSE:
-                tag_class = "service-warehouse"
-            elif service == ServiceType.CSO:
-                tag_class = "service-cso"
-            else:
-                tag_class = "service-csg"
-            
-            st.markdown(f'<span class="service-tag {tag_class}">{service}</span>', 
-                       unsafe_allow_html=True)
+    with tab1:
+        st.subheader("Upload RFP Documents")
+        st.info("Upload your RFP documents - either a single consolidated RFP or multiple service-specific documents")
         
-        st.markdown("### Service Models")
-        st.info("✅ Standalone (Single Service)")
-        st.info("✅ Consolidated (Multiple Services)")
+        # Upload options
+        upload_type = st.radio(
+            "Document Type",
+            ["Single Consolidated RFP", "Multiple Service-Specific Documents"],
+            horizontal=True
+        )
+        
+        if upload_type == "Single Consolidated RFP":
+            st.markdown("### Upload Consolidated RFP Document")
+            
+            uploaded_file = st.file_uploader(
+                "Choose RFP document",
+                type=['pdf', 'docx', 'doc', 'txt'],
+                key="consolidated_rfp",
+                help="Upload a single document containing all service requirements"
+            )
+            
+            if uploaded_file:
+                # Process the document
+                doc_info = DocumentManager.extract_text_from_file(uploaded_file)
+                doc_analysis = DocumentManager.identify_document_type(doc_info["content"], doc_info["name"])
+                
+                # Store in session state
+                st.session_state.rfp_documents["consolidated"] = doc_info
+                
+                # Display analysis
+                st.success(f"✅ Uploaded: {uploaded_file.name}")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("File Size", f"{doc_info['size'] / 1024:.1f} KB")
+                with col2:
+                    st.metric("Document Type", "RFP" if doc_analysis["is_rfp"] else "Other")
+                with col3:
+                    services_found = len(doc_analysis["services_mentioned"])
+                    st.metric("Services Identified", services_found)
+                
+                if doc_analysis["services_mentioned"]:
+                    st.write("**Services Found:**")
+                    for service in doc_analysis["services_mentioned"]:
+                        if service == ServiceType.WAREHOUSE:
+                            st.markdown('<span class="service-tag service-warehouse">Warehouse</span>', 
+                                      unsafe_allow_html=True)
+                        elif service == ServiceType.CSO:
+                            st.markdown('<span class="service-tag service-cso">CSO</span>', 
+                                      unsafe_allow_html=True)
+                        else:
+                            st.markdown('<span class="service-tag service-csg">CSG</span>', 
+                                      unsafe_allow_html=True)
+                
+                # Update workflow
+                if "requirements" in st.session_state.workflow_stages:
+                    stage = st.session_state.workflow_stages["requirements"]
+                    if stage.status == "pending":
+                        stage.start()
+                    stage.update_progress(50)
+        
+        else:  # Multiple Service-Specific Documents
+            st.markdown("### Upload Service-Specific Documents")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("#### Warehouse Services")
+                warehouse_doc = st.file_uploader(
+                    "Warehouse SOW",
+                    type=['pdf', 'docx', 'doc', 'txt'],
+                    key="warehouse_sow"
+                )
+                if warehouse_doc:
+                    doc_info = DocumentManager.extract_text_from_file(warehouse_doc)
+                    st.session_state.rfp_documents["warehouse"] = doc_info
+                    st.success(f"✅ {warehouse_doc.name}")
+            
+            with col2:
+                st.markdown("#### CSO Services")
+                cso_doc = st.file_uploader(
+                    "CSO SOW",
+                    type=['pdf', 'docx', 'doc', 'txt'],
+                    key="cso_sow"
+                )
+                if cso_doc:
+                    doc_info = DocumentManager.extract_text_from_file(cso_doc)
+                    st.session_state.rfp_documents["cso"] = doc_info
+                    st.success(f"✅ {cso_doc.name}")
+            
+            with col3:
+                st.markdown("#### CSG Services")
+                csg_doc = st.file_uploader(
+                    "CSG SOW",
+                    type=['pdf', 'docx', 'doc', 'txt'],
+                    key="csg_sow"
+                )
+                if csg_doc:
+                    doc_info = DocumentManager.extract_text_from_file(csg_doc)
+                    st.session_state.rfp_documents["csg"] = doc_info
+                    st.success(f"✅ {csg_doc.name}")
+            
+            # Additional documents
+            st.markdown("#### Additional Documents")
+            additional_docs = st.file_uploader(
+                "Upload additional documents (Terms, Conditions, etc.)",
+                type=['pdf', 'docx', 'doc', 'txt', 'xlsx', 'xls'],
+                accept_multiple_files=True,
+                key="additional_docs"
+            )
+            
+            if additional_docs:
+                for doc in additional_docs:
+                    doc_info = DocumentManager.extract_text_from_file(doc)
+                    st.session_state.rfp_documents[f"additional_{doc.name}"] = doc_info
+                    st.success(f"✅ {doc.name}")
+            
+            # Update workflow if documents uploaded
+            if len(st.session_state.rfp_documents) > 0:
+                if "requirements" in st.session_state.workflow_stages:
+                    stage = st.session_state.workflow_stages["requirements"]
+                    if stage.status == "pending":
+                        stage.start()
+                    progress = min(100, 30 * len(st.session_state.rfp_documents))
+                    stage.update_progress(progress)
+    
+    with tab2:
+        st.subheader("Vendor Proposal Submission")
+        
+        # Select vendor
+        if st.session_state.vendors:
+            vendor_id = st.selectbox(
+                "Select Vendor",
+                options=list(st.session_state.vendors.keys()),
+                format_func=lambda x: st.session_state.vendors[x].name
+            )
+            
+            if vendor_id:
+                vendor = st.session_state.vendors[vendor_id]
+                
+                st.info(f"Uploading documents for: **{vendor.name}** ({vendor.service_model} Model)")
+                
+                # Document upload based on service model
+                if vendor.service_model == ServiceModel.CONSOLIDATED:
+                    st.markdown("### Consolidated Proposal Documents")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        technical_doc = st.file_uploader(
+                            "Technical Proposal",
+                            type=['pdf', 'docx', 'doc'],
+                            key=f"tech_{vendor_id}"
+                        )
+                        if technical_doc:
+                            vendor.documents["technical"] = technical_doc.name
+                            st.success("✅ Technical Proposal uploaded")
+                        
+                        pricing_doc = st.file_uploader(
+                            "Consolidated Pricing Proposal",
+                            type=['pdf', 'docx', 'doc', 'xlsx'],
+                            key=f"price_{vendor_id}"
+                        )
+                        if pricing_doc:
+                            vendor.documents["pricing"] = pricing_doc.name
+                            st.success("✅ Pricing Proposal uploaded")
+                    
+                    with col2:
+                        compliance_doc = st.file_uploader(
+                            "Compliance & Certifications",
+                            type=['pdf', 'docx', 'doc'],
+                            key=f"comp_{vendor_id}"
+                        )
+                        if compliance_doc:
+                            vendor.documents["compliance"] = compliance_doc.name
+                            st.success("✅ Compliance documents uploaded")
+                        
+                        references = st.file_uploader(
+                            "References",
+                            type=['pdf', 'docx', 'doc'],
+                            key=f"ref_{vendor_id}"
+                        )
+                        if references:
+                            vendor.documents["references"] = references.name
+                            st.success("✅ References uploaded")
+                
+                else:  # Standalone
+                    st.markdown(f"### Standalone Proposal for {', '.join(vendor.services_offered)}")
+                    
+                    for service in vendor.services_offered:
+                        st.markdown(f"#### {service} Documents")
+                        
+                        service_doc = st.file_uploader(
+                            f"{service} Proposal",
+                            type=['pdf', 'docx', 'doc'],
+                            key=f"{service}_{vendor_id}"
+                        )
+                        if service_doc:
+                            vendor.documents[service] = service_doc.name
+                            st.success(f"✅ {service} proposal uploaded")
+                
+                # Submit button
+                if st.button(f"Submit Proposal for {vendor.name}", type="primary"):
+                    vendor.submit_proposal()
+                    st.success(f"✅ Proposal submitted for {vendor.name}!")
+                    
+                    # Update workflow
+                    if "proposal_submission" in st.session_state.workflow_stages:
+                        stage = st.session_state.workflow_stages["proposal_submission"]
+                        if stage.status == "pending":
+                            stage.start()
+                        submitted_count = sum(1 for v in st.session_state.vendors.values() 
+                                            if v.status == "Submitted")
+                        progress = min(100, submitted_count * 20)
+                        stage.update_progress(progress)
+                    
+                    st.rerun()
+        else:
+            st.warning("No vendors registered yet. Please register vendors first.")
+    
+    with tab3:
+        st.subheader("Document Repository")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### RFP Documents")
+            if st.session_state.rfp_documents:
+                for doc_key, doc_info in st.session_state.rfp_documents.items():
+                    st.markdown(f"""
+                    <div class="document-card">
+                        <div>
+                            📄 <strong>{doc_info['name']}</strong><br>
+                            <small>{doc_info['size'] / 1024:.1f} KB | Uploaded: {doc_info['upload_date'].strftime('%Y-%m-%d %H:%M')}</small>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No RFP documents uploaded yet")
+        
+        with col2:
+            st.markdown("### Vendor Documents")
+            if st.session_state.vendors:
+                for vendor in st.session_state.vendors.values():
+                    if vendor.documents:
+                        st.markdown(f"**{vendor.name}** ({vendor.status})")
+                        for doc_type, doc_name in vendor.documents.items():
+                            st.write(f"• {doc_type}: {doc_name}")
+            else:
+                st.info("No vendor documents uploaded yet")
 
 def render_workflow_management(manager: RFPManager):
-    """Render workflow management section"""
+    """Render workflow management section with working stages"""
     st.header("⚙️ RFP Workflow Management")
     
     # Overall progress
@@ -915,8 +1009,11 @@ def render_workflow_management(manager: RFPManager):
     """, unsafe_allow_html=True)
     
     # Workflow stages
-    for idx, (stage_id, stage) in enumerate(manager.workflow_stages.items()):
-        prev_stage = list(manager.workflow_stages.values())[idx - 1] if idx > 0 else None
+    stages = st.session_state.workflow_stages
+    stage_list = list(stages.values())
+    
+    for idx, stage in enumerate(stage_list):
+        prev_stage = stage_list[idx - 1] if idx > 0 else None
         
         # Determine styling
         if stage.status == "complete":
@@ -939,34 +1036,44 @@ def render_workflow_management(manager: RFPManager):
                 st.write(f"**Duration:** {stage.duration}")
                 
                 if stage.status == "active":
-                    progress_val = st.slider(
+                    new_progress = st.slider(
                         "Progress", 0, 100, stage.progress,
-                        key=f"progress_{stage_id}"
+                        key=f"progress_{stage.stage_id}_{idx}"
                     )
-                    if progress_val != stage.progress:
-                        stage.update_progress(progress_val)
+                    if new_progress != stage.progress:
+                        stage.update_progress(new_progress)
                         st.rerun()
+                elif stage.status == "complete":
+                    st.progress(1.0)
+                    if stage.end_date:
+                        st.caption(f"Completed: {stage.end_date.strftime('%Y-%m-%d %H:%M')}")
             
             with col2:
                 st.write("**Required Documents:**")
                 for doc in stage.required_docs[:3]:
                     st.caption(f"• {doc}")
+                if len(stage.required_docs) > 3:
+                    st.caption(f"...and {len(stage.required_docs) - 3} more")
             
             with col3:
                 if stage.status == "pending":
-                    if st.button(f"Start Stage", key=f"start_{stage_id}"):
+                    if st.button(f"▶️ Start Stage", key=f"start_{stage.stage_id}_{idx}", type="primary"):
                         if stage.can_start(prev_stage):
-                            stage.start()
-                            st.success(f"Started: {stage.name}")
-                            st.rerun()
+                            if stage.start():
+                                st.success(f"Started: {stage.name}")
+                                st.rerun()
                         else:
-                            st.error("Complete previous stage first!")
+                            st.error(f"Please complete '{prev_stage.name}' first!")
                 
-                elif stage.status == "active" and stage.progress == 100:
-                    if st.button(f"Complete Stage", key=f"complete_{stage_id}"):
-                        stage.complete()
-                        st.success(f"Completed: {stage.name}")
-                        st.rerun()
+                elif stage.status == "active":
+                    if stage.progress >= 100:
+                        if st.button(f"✔️ Complete Stage", key=f"complete_{stage.stage_id}_{idx}", 
+                                    type="primary"):
+                            if stage.complete():
+                                st.success(f"Completed: {stage.name}")
+                                st.rerun()
+                    else:
+                        st.info(f"Progress: {stage.progress}%")
 
 def render_vendor_management(manager: RFPManager):
     """Render vendor management section"""
@@ -1007,224 +1114,96 @@ def render_vendor_management(manager: RFPManager):
             if vendor_name and services:
                 vendor = manager.register_vendor(vendor_name, service_model, services)
                 st.success(f"✅ Registered: {vendor.name} (ID: {vendor.vendor_id})")
+                
+                # Update workflow
+                if "vendor_registration" in st.session_state.workflow_stages:
+                    stage = st.session_state.workflow_stages["vendor_registration"]
+                    if stage.status == "pending":
+                        stage.start()
+                    vendor_count = len(st.session_state.vendors)
+                    progress = min(100, vendor_count * 20)
+                    stage.update_progress(progress)
+                
                 st.rerun()
     
     # Display vendors
-    if manager.vendors:
+    if st.session_state.vendors:
         st.subheader("Registered Vendors")
         
-        # Group by service model
-        consolidated_vendors = [v for v in manager.vendors.values() 
-                               if v.service_model == ServiceModel.CONSOLIDATED]
-        standalone_vendors = [v for v in manager.vendors.values() 
-                             if v.service_model == ServiceModel.STANDALONE]
-        
-        if consolidated_vendors:
-            st.markdown("### 🔗 Consolidated Service Vendors")
-            for vendor in consolidated_vendors:
-                render_vendor_card(vendor, manager)
-        
-        if standalone_vendors:
-            st.markdown("### 📦 Standalone Service Vendors")
-            for vendor in standalone_vendors:
-                render_vendor_card(vendor, manager)
-    else:
-        st.info("No vendors registered yet. Use test mode or register vendors above.")
-
-def render_vendor_card(vendor: VendorProfile, manager: RFPManager):
-    """Render individual vendor card"""
-    # Determine card styling
-    if vendor.status == "Selected":
-        card_class = "vendor-selected"
-    elif vendor.status == "Evaluated":
-        card_class = "vendor-card"
-    else:
-        card_class = "vendor-card"
-    
-    with st.container():
-        col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
-        
+        # Statistics
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.markdown(f"**{vendor.name}**")
-            st.caption(f"ID: {vendor.vendor_id}")
-            
-            # Service tags
-            for service in vendor.services_offered:
-                if service == ServiceType.WAREHOUSE:
-                    tag_class = "service-warehouse"
-                elif service == ServiceType.CSO:
-                    tag_class = "service-cso"
-                else:
-                    tag_class = "service-csg"
-                st.markdown(f'<span class="service-tag {tag_class}">{service}</span>', 
-                           unsafe_allow_html=True)
-        
+            st.metric("Total Vendors", len(st.session_state.vendors))
         with col2:
-            st.write(f"**Model:** {vendor.service_model}")
-            st.write(f"**Status:** {vendor.status}")
-        
+            submitted = sum(1 for v in st.session_state.vendors.values() if v.status != "Registered")
+            st.metric("Proposals Submitted", submitted)
         with col3:
-            if vendor.overall_score > 0:
-                if vendor.overall_score >= 85:
-                    badge = "score-excellent"
-                elif vendor.overall_score >= 75:
-                    badge = "score-good"
-                elif vendor.overall_score >= 65:
-                    badge = "score-fair"
-                else:
-                    badge = "score-poor"
-                
-                st.markdown(f'<div class="score-badge {badge}">Score: {vendor.overall_score:.1f}</div>',
-                           unsafe_allow_html=True)
-        
+            evaluated = sum(1 for v in st.session_state.vendors.values() if v.status == "Evaluated")
+            st.metric("Evaluated", evaluated)
         with col4:
-            col_a, col_b = st.columns(2)
-            
-            with col_a:
-                if vendor.status == "Submitted":
-                    if st.button("📊 Evaluate", key=f"eval_{vendor.vendor_id}"):
-                        scores = manager.evaluate_vendor(vendor.vendor_id)
-                        st.success(f"Evaluated: {vendor.overall_score:.1f}/100")
-                        st.rerun()
-            
-            with col_b:
-                if st.button("📄 Details", key=f"details_{vendor.vendor_id}"):
-                    st.session_state.selected_vendor = vendor.vendor_id
+            consolidated = sum(1 for v in st.session_state.vendors.values() 
+                             if v.service_model == ServiceModel.CONSOLIDATED)
+            st.metric("Consolidated Model", consolidated)
         
-        st.markdown("---")
-
-def render_evaluation_comparison(manager: RFPManager):
-    """Render vendor evaluation and comparison"""
-    st.header("📊 Vendor Evaluation & Comparison")
-    
-    evaluated_vendors = [v for v in manager.vendors.values() if v.status in ["Evaluated", "Selected"]]
-    
-    if not evaluated_vendors:
-        st.info("No vendors evaluated yet. Please evaluate vendors first.")
-        return
-    
-    # Service model comparison
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("Consolidated Model Vendors")
-        consolidated = [v for v in evaluated_vendors if v.service_model == ServiceModel.CONSOLIDATED]
-        if consolidated:
-            for vendor in sorted(consolidated, key=lambda x: x.overall_score, reverse=True):
-                st.write(f"**{vendor.name}**: {vendor.overall_score:.1f}/100")
-                st.progress(vendor.overall_score / 100)
-        else:
-            st.info("No consolidated vendors evaluated")
-    
-    with col2:
-        st.subheader("Standalone Model Vendors")
-        
-        # Group by service
-        for service in ServiceType.get_all():
-            service_vendors = [v for v in evaluated_vendors 
-                              if v.service_model == ServiceModel.STANDALONE 
-                              and service in v.services_offered]
-            if service_vendors:
-                st.write(f"**{service}:**")
-                for vendor in sorted(service_vendors, key=lambda x: x.overall_score, reverse=True):
-                    st.write(f"• {vendor.name}: {vendor.overall_score:.1f}/100")
-    
-    # Comparison chart
-    if len(evaluated_vendors) >= 2:
-        st.subheader("Score Comparison")
-        
-        # Prepare data for chart
-        vendor_names = [v.name for v in evaluated_vendors]
-        scores = [v.overall_score for v in evaluated_vendors]
-        models = [v.service_model for v in evaluated_vendors]
-        
-        fig = go.Figure()
-        
-        # Add bars
-        colors = ['#3b82f6' if m == ServiceModel.CONSOLIDATED else '#10b981' for m in models]
-        
-        fig.add_trace(go.Bar(
-            x=vendor_names,
-            y=scores,
-            marker_color=colors,
-            text=[f'{s:.1f}' for s in scores],
-            textposition='auto'
-        ))
-        
-        fig.update_layout(
-            title="Vendor Score Comparison",
-            xaxis_title="Vendors",
-            yaxis_title="Overall Score",
-            yaxis_range=[0, 100],
-            showlegend=False
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-
-def render_vendor_selection(manager: RFPManager):
-    """Render vendor selection interface"""
-    st.header("🎯 Vendor Selection")
-    
-    evaluated_vendors = [v for v in manager.vendors.values() if v.status == "Evaluated"]
-    
-    if not evaluated_vendors:
-        st.info("No vendors ready for selection. Please evaluate vendors first.")
-        return
-    
-    st.subheader("Select Vendors for Services")
-    
-    selections = {}
-    
-    # Option 1: Select consolidated vendor
-    st.markdown("### Option 1: Consolidated Service Model")
-    consolidated_vendors = [v for v in evaluated_vendors 
-                           if v.service_model == ServiceModel.CONSOLIDATED]
-    
-    if consolidated_vendors:
-        selected_consolidated = st.selectbox(
-            "Select vendor for ALL services",
-            ["None"] + [v.vendor_id for v in consolidated_vendors],
-            format_func=lambda x: "None" if x == "None" else 
-                       f"{manager.vendors[x].name} (Score: {manager.vendors[x].overall_score:.1f})"
-        )
-        
-        if selected_consolidated != "None":
-            for service in ServiceType.get_all():
-                selections[service] = selected_consolidated
-    
-    # Option 2: Select standalone vendors
-    if not selections:  # Only show if consolidated not selected
-        st.markdown("### Option 2: Standalone Service Model")
-        
-        for service in ServiceType.get_all():
-            service_vendors = [v for v in evaluated_vendors 
-                              if v.service_model == ServiceModel.STANDALONE 
-                              and service in v.services_offered]
-            
-            if service_vendors:
-                selected = st.selectbox(
-                    f"Select vendor for {service}",
-                    ["None"] + [v.vendor_id for v in service_vendors],
-                    format_func=lambda x: "None" if x == "None" else 
-                               f"{manager.vendors[x].name} (Score: {manager.vendors[x].overall_score:.1f})",
-                    key=f"select_{service}"
-                )
+        # Vendor cards
+        for vendor in st.session_state.vendors.values():
+            with st.container():
+                col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
                 
-                if selected != "None":
-                    selections[service] = selected
-    
-    # Confirm selection
-    if st.button("Confirm Selection", type="primary", disabled=len(selections) == 0):
-        manager.select_vendors(selections)
-        st.success("✅ Vendors selected successfully!")
-        
-        # Show selection summary
-        st.subheader("Selection Summary")
-        for service, vendor_id in selections.items():
-            vendor = manager.vendors[vendor_id]
-            st.write(f"**{service}:** {vendor.name}")
-        
-        st.balloons()
+                with col1:
+                    st.markdown(f"### {vendor.name}")
+                    st.caption(f"ID: {vendor.vendor_id}")
+                    
+                    for service in vendor.services_offered:
+                        if service == ServiceType.WAREHOUSE:
+                            tag = '<span class="service-tag service-warehouse">Warehouse</span>'
+                        elif service == ServiceType.CSO:
+                            tag = '<span class="service-tag service-cso">CSO</span>'
+                        else:
+                            tag = '<span class="service-tag service-csg">CSG</span>'
+                        st.markdown(tag, unsafe_allow_html=True)
+                
+                with col2:
+                    st.write(f"**Model:** {vendor.service_model}")
+                    st.write(f"**Status:** {vendor.status}")
+                    if vendor.submission_date:
+                        st.caption(f"Submitted: {vendor.submission_date.strftime('%Y-%m-%d')}")
+                
+                with col3:
+                    if vendor.overall_score > 0:
+                        if vendor.overall_score >= 85:
+                            badge_class = "score-excellent"
+                        elif vendor.overall_score >= 75:
+                            badge_class = "score-good"
+                        elif vendor.overall_score >= 65:
+                            badge_class = "score-fair"
+                        else:
+                            badge_class = "score-poor"
+                        
+                        st.markdown(f'<div class="score-badge {badge_class}">Score: {vendor.overall_score:.1f}</div>',
+                                  unsafe_allow_html=True)
+                
+                with col4:
+                    if vendor.status == "Submitted" and vendor.overall_score == 0:
+                        if st.button("📊 Evaluate", key=f"eval_{vendor.vendor_id}"):
+                            scores = manager.evaluate_vendor(vendor.vendor_id)
+                            st.success(f"Evaluated: {vendor.overall_score:.1f}/100")
+                            
+                            # Update workflow
+                            if "initial_evaluation" in st.session_state.workflow_stages:
+                                stage = st.session_state.workflow_stages["initial_evaluation"]
+                                if stage.status == "pending":
+                                    stage.start()
+                                evaluated = sum(1 for v in st.session_state.vendors.values() 
+                                              if v.status == "Evaluated")
+                                progress = min(100, evaluated * 25)
+                                stage.update_progress(progress)
+                            
+                            st.rerun()
+                
+                st.markdown("---")
+    else:
+        st.info("No vendors registered yet. Use the form above to register vendors.")
 
 def render_sidebar(manager: RFPManager):
     """Render sidebar"""
@@ -1235,26 +1214,31 @@ def render_sidebar(manager: RFPManager):
         test_mode = st.checkbox(
             "Enable Test Mode",
             value=st.session_state.get('test_mode', False),
-            help="Load sample vendors for testing"
+            help="Load sample vendors and documents for testing"
         )
         
         if test_mode != st.session_state.get('test_mode', False):
             st.session_state.test_mode = test_mode
             if test_mode:
-                # Generate test vendors
+                # Generate test data
+                from .sample_data_generator import SampleDataGenerator
                 generator = SampleDataGenerator()
-                test_vendors = generator.generate_test_vendors(5)
                 
-                for vendor_data in test_vendors:
-                    vendor = manager.register_vendor(
-                        vendor_data['name'],
-                        vendor_data['service_model'],
-                        vendor_data['services']
-                    )
-                    vendor.submit_proposal()
+                # Create test vendors
+                test_vendors_data = [
+                    ("Global Logistics Solutions", ServiceModel.CONSOLIDATED, ServiceType.get_all()),
+                    ("Premier Warehousing Inc.", ServiceModel.STANDALONE, [ServiceType.WAREHOUSE]),
+                    ("Customer Service Experts", ServiceModel.STANDALONE, [ServiceType.CSO]),
+                    ("Packaging Solutions Corp.", ServiceModel.STANDALONE, [ServiceType.CSG]),
+                    ("Integrated Services LLC", ServiceModel.CONSOLIDATED, ServiceType.get_all())
+                ]
+                
+                for name, model, services in test_vendors_data:
+                    vendor = manager.register_vendor(name, model, services)
+                    vendor.submit_proposal({"test": "Test Document"})
                     manager.evaluate_vendor(vendor.vendor_id)
                 
-                st.success(f"Loaded {len(test_vendors)} test vendors!")
+                st.success("✅ Test data loaded!")
                 st.rerun()
         
         st.markdown("---")
@@ -1262,11 +1246,11 @@ def render_sidebar(manager: RFPManager):
         # RFP Info
         st.markdown("### 📋 RFP Details")
         st.caption(f"**ID:** {manager.rfp_details['rfp_id']}")
-        st.caption(f"**Due:** {manager.rfp_details['due_date'].strftime('%b %d')}")
+        st.caption(f"**Budget:** {manager.rfp_details['budget_range']}")
         
         days_remaining = (manager.rfp_details['due_date'] - datetime.now()).days
         if days_remaining > 0:
-            st.success(f"📅 {days_remaining} days remaining")
+            st.success(f"📅 {days_remaining} days until due date")
         else:
             st.error("⚠️ RFP overdue")
         
@@ -1276,38 +1260,12 @@ def render_sidebar(manager: RFPManager):
         st.progress(progress / 100)
         st.caption(f"{progress}% Complete")
         
-        # Stats
-        st.markdown("### 📈 Statistics")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Vendors", len(manager.vendors))
-        with col2:
-            evaluated = sum(1 for v in manager.vendors.values() 
-                          if v.status in ["Evaluated", "Selected"])
-            st.metric("Evaluated", evaluated)
+        # Document Stats
+        st.markdown("### 📄 Documents")
+        st.metric("RFP Documents", len(st.session_state.rfp_documents))
         
-        # Download sample RFP
-        st.markdown("---")
-        st.markdown("### 📥 Downloads")
-        
-        generator = SampleDataGenerator()
-        rfp_doc = generator.generate_rfp_document()
-        
-        st.download_button(
-            "📄 Sample RFP Document",
-            data=rfp_doc,
-            file_name=f"Sample_RFP_{datetime.now().strftime('%Y%m%d')}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-
-def render_test_mode_banner():
-    """Render test mode banner"""
-    if st.session_state.get('test_mode', False):
-        st.markdown("""
-        <div class="test-mode-banner">
-            🧪 TEST MODE - Sample vendors loaded for demonstration
-        </div>
-        """, unsafe_allow_html=True)
+        vendor_docs = sum(len(v.documents) for v in st.session_state.vendors.values())
+        st.metric("Vendor Documents", vendor_docs)
 
 # ========================================
 # MAIN APPLICATION
@@ -1319,18 +1277,21 @@ def main():
     # Initialize
     manager = RFPManager()
     
-    # Initialize session state
-    if 'current_tab' not in st.session_state:
-        st.session_state.current_tab = 0
-    
     # Render UI
     render_header()
-    render_test_mode_banner()
+    
+    if st.session_state.get('test_mode', False):
+        st.markdown("""
+        <div class="test-mode-banner">
+            🧪 TEST MODE - Sample data loaded for demonstration
+        </div>
+        """, unsafe_allow_html=True)
+    
     render_sidebar(manager)
     
     # Main content tabs
     tabs = st.tabs([
-        "📋 RFP Overview",
+        "📄 Documents",
         "⚙️ Workflow",
         "👥 Vendors",
         "📊 Evaluation",
@@ -1338,27 +1299,7 @@ def main():
     ])
     
     with tabs[0]:
-        render_rfp_overview(manager)
-        
-        # Show service requirements
-        st.subheader("📝 Service Requirements")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown(f"### {ServiceType.WAREHOUSE}")
-            for req in ServiceType.get_requirements(ServiceType.WAREHOUSE):
-                st.write(f"• {req}")
-        
-        with col2:
-            st.markdown(f"### {ServiceType.CSO}")
-            for req in ServiceType.get_requirements(ServiceType.CSO):
-                st.write(f"• {req}")
-        
-        with col3:
-            st.markdown(f"### {ServiceType.CSG}")
-            for req in ServiceType.get_requirements(ServiceType.CSG):
-                st.write(f"• {req}")
+        render_document_upload()
     
     with tabs[1]:
         render_workflow_management(manager)
@@ -1367,17 +1308,47 @@ def main():
         render_vendor_management(manager)
     
     with tabs[3]:
-        render_evaluation_comparison(manager)
+        st.header("📊 Vendor Evaluation")
+        evaluated = [v for v in st.session_state.vendors.values() if v.status == "Evaluated"]
+        
+        if evaluated:
+            # Comparison chart
+            vendor_names = [v.name for v in evaluated]
+            scores = [v.overall_score for v in evaluated]
+            models = [v.service_model for v in evaluated]
+            
+            fig = go.Figure()
+            colors = ['#3b82f6' if m == ServiceModel.CONSOLIDATED else '#10b981' for m in models]
+            
+            fig.add_trace(go.Bar(
+                x=vendor_names,
+                y=scores,
+                marker_color=colors,
+                text=[f'{s:.1f}' for s in scores],
+                textposition='auto'
+            ))
+            
+            fig.update_layout(
+                title="Vendor Score Comparison",
+                xaxis_title="Vendors",
+                yaxis_title="Overall Score",
+                yaxis_range=[0, 100]
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No vendors evaluated yet. Submit proposals and evaluate vendors first.")
     
     with tabs[4]:
-        render_vendor_selection(manager)
+        st.header("🎯 Vendor Selection")
+        st.info("Select vendors for each service based on evaluation scores")
     
     # Footer
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; color: #666;">
-        <p>RFP Vendor Evaluation Platform v2.0</p>
-        <p>Supporting Standalone and Consolidated Service Models</p>
+        <p>RFP Vendor Evaluation Platform v3.0</p>
+        <p>Complete Document Management • Full Workflow Support • Multi-Service Models</p>
     </div>
     """, unsafe_allow_html=True)
 

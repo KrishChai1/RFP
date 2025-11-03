@@ -1,8 +1,8 @@
 """
 🎯 Enhanced RFP Analysis & Vendor Management System
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Enterprise-grade RFP evaluation platform for UPS Global Logistics & Distribution
-Supporting multi-document analysis, vendor scoring, and complete procurement workflow
+Complete RFP lifecycle management with AI-powered analysis
+Supporting entire RFP document upload and multi-vendor evaluation
 """
 
 import streamlit as st
@@ -21,172 +21,250 @@ import io
 import hashlib
 import uuid
 from typing import Dict, List, Optional, Tuple, Any
-import openpyxl
-from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
 import base64
 import time
+import random
 
 # ========================================
 # CONFIGURATION & INITIALIZATION
 # ========================================
 
 st.set_page_config(
-    page_title="UPS GLD - RFP Vendor Management System",
-    page_icon="📦",
+    page_title="RFP Vendor Management System",
+    page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Enhanced CSS for professional UI
+# Professional CSS styling
 st.markdown("""
 <style>
-    /* Main Theme */
     :root {
-        --primary-color: #351C15;  /* UPS Brown */
-        --secondary-color: #FFB500; /* UPS Gold */
-        --success-color: #16a34a;
-        --warning-color: #ca8a04;
-        --danger-color: #dc2626;
-        --info-color: #2563eb;
+        --primary: #2C3E50;
+        --secondary: #3498DB;
+        --success: #27AE60;
+        --warning: #F39C12;
+        --danger: #E74C3C;
+        --info: #16A085;
     }
     
     .main-header {
-        background: linear-gradient(135deg, var(--primary-color) 0%, #5a3028 100%);
+        background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
         color: white;
         padding: 2rem;
         border-radius: 10px;
         margin-bottom: 2rem;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        text-align: center;
     }
     
-    .workflow-stage {
+    .workflow-card {
         background: white;
-        border-left: 4px solid var(--secondary-color);
-        padding: 1rem;
+        border-radius: 10px;
+        padding: 1.5rem;
         margin: 1rem 0;
-        border-radius: 5px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        border-left: 4px solid var(--primary);
+        transition: all 0.3s;
+    }
+    
+    .workflow-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    }
+    
+    .stage-pending {
+        border-left-color: #95A5A6;
+        opacity: 0.7;
+    }
+    
+    .stage-active {
+        border-left-color: var(--warning);
+        background: #FFF9E6;
+        animation: pulse 2s infinite;
+    }
+    
+    .stage-complete {
+        border-left-color: var(--success);
+        background: #E8F6F3;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.9; }
+    }
+    
+    .vendor-card {
+        background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    }
+    
+    .score-badge {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: bold;
+        margin: 0.25rem;
+    }
+    
+    .score-excellent { background: #D4EDDA; color: #155724; }
+    .score-good { background: #D1ECF1; color: #0C5460; }
+    .score-fair { background: #FFF3CD; color: #856404; }
+    .score-poor { background: #F8D7DA; color: #721C24; }
+    
+    .document-upload-zone {
+        border: 2px dashed var(--secondary);
+        border-radius: 10px;
+        padding: 2rem;
+        text-align: center;
+        background: #F0F8FF;
+        margin: 1rem 0;
     }
     
     .metric-card {
         background: white;
         padding: 1.5rem;
         border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        border-top: 3px solid var(--primary-color);
-        margin-bottom: 1rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        text-align: center;
+        border-top: 3px solid var(--secondary);
     }
     
-    .vendor-card {
-        background: linear-gradient(to bottom, #ffffff, #f9f9f9);
-        border: 1px solid #e5e5e5;
-        border-radius: 10px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-        transition: transform 0.3s ease;
-    }
-    
-    .vendor-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 5px 20px rgba(0,0,0,0.15);
-    }
-    
-    .document-item {
-        background: #f8f9fa;
-        padding: 0.75rem;
-        border-radius: 5px;
+    .chat-message {
+        padding: 1rem;
         margin: 0.5rem 0;
-        border-left: 3px solid var(--info-color);
+        border-radius: 10px;
     }
     
-    .stage-complete {
-        background-color: #dcfce7;
-        border-left-color: var(--success-color);
+    .user-message {
+        background: #E3F2FD;
+        margin-left: 20%;
     }
     
-    .stage-active {
-        background-color: #fef3c7;
-        border-left-color: var(--warning-color);
-        animation: pulse 2s infinite;
+    .assistant-message {
+        background: #F5F5F5;
+        margin-right: 20%;
     }
     
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.8; }
-        100% { opacity: 1; }
+    .timeline-container {
+        position: relative;
+        padding: 20px 0;
     }
     
     .timeline-item {
-        position: relative;
-        padding-left: 40px;
-        margin-bottom: 30px;
+        display: flex;
+        align-items: center;
+        margin: 20px 0;
     }
     
-    .timeline-item::before {
-        content: '';
-        position: absolute;
-        left: 10px;
-        top: 0;
-        height: 100%;
-        width: 2px;
-        background: var(--primary-color);
-    }
-    
-    .timeline-dot {
-        position: absolute;
-        left: 4px;
-        top: 5px;
-        width: 14px;
-        height: 14px;
+    .timeline-marker {
+        width: 40px;
+        height: 40px;
         border-radius: 50%;
-        background: var(--secondary-color);
-        border: 2px solid var(--primary-color);
-    }
-    
-    .score-badge {
-        display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         font-weight: bold;
-        font-size: 0.9rem;
-    }
-    
-    .score-excellent { background: #dcfce7; color: #166534; }
-    .score-good { background: #dbeafe; color: #1e40af; }
-    .score-fair { background: #fef3c7; color: #92400e; }
-    .score-poor { background: #fee2e2; color: #991b1b; }
-    
-    .chat-container {
-        background: #f8f9fa;
-        border-radius: 10px;
-        padding: 1rem;
-        max-height: 500px;
-        overflow-y: auto;
-    }
-    
-    .comparison-table {
-        border-collapse: collapse;
-        width: 100%;
-    }
-    
-    .comparison-table th {
-        background: var(--primary-color);
         color: white;
-        padding: 1rem;
-        text-align: left;
+        margin-right: 20px;
+        flex-shrink: 0;
     }
     
-    .comparison-table td {
-        padding: 0.75rem;
-        border-bottom: 1px solid #e5e5e5;
+    .timeline-content {
+        flex-grow: 1;
     }
     
-    .comparison-table tr:hover {
-        background: #f8f9fa;
+    .progress-bar {
+        background: #E0E0E0;
+        height: 30px;
+        border-radius: 15px;
+        overflow: hidden;
+        margin: 20px 0;
+    }
+    
+    .progress-fill {
+        background: linear-gradient(90deg, var(--success), var(--secondary));
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        transition: width 0.5s ease;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# ========================================
+# MOCK DATA GENERATOR
+# ========================================
+
+class MockDataGenerator:
+    """Generate realistic mock data for demonstration"""
+    
+    @staticmethod
+    def generate_vendor_response():
+        """Generate mock vendor RFP response data"""
+        companies = ["TechLogistics Inc.", "Global Supply Solutions", "FastTrack Warehousing", 
+                     "Premier Distribution Services", "NextGen Fulfillment"]
+        
+        return {
+            "company_profile": {
+                "name": random.choice(companies),
+                "established": random.randint(1990, 2015),
+                "employees": random.randint(500, 5000),
+                "locations": random.randint(5, 50),
+                "certifications": ["ISO 9001", "ISO 14001", "C-TPAT", "TAPA FSR"],
+                "revenue": f"${random.randint(50, 500)}M",
+                "clients": random.randint(50, 500)
+            },
+            "technical_proposal": {
+                "warehouse_facilities": f"{random.randint(10, 100)} facilities",
+                "total_sqft": f"{random.randint(500000, 5000000):,} sq ft",
+                "technology_stack": ["WMS", "TMS", "YMS", "RFID", "IoT Sensors"],
+                "automation_level": f"{random.randint(40, 90)}%",
+                "order_accuracy": f"{random.uniform(98.5, 99.9):.1f}%",
+                "on_time_delivery": f"{random.uniform(95, 99):.1f}%"
+            },
+            "pricing": {
+                "storage_per_pallet": f"${random.uniform(15, 30):.2f}",
+                "pick_pack_per_order": f"${random.uniform(3, 8):.2f}",
+                "shipping_handling": f"${random.uniform(5, 15):.2f}",
+                "monthly_minimum": f"${random.randint(10000, 50000):,}",
+                "contract_term": f"{random.choice([12, 24, 36])} months",
+                "volume_discounts": "5-15% based on volume"
+            },
+            "service_capabilities": {
+                "warehousing": ["Storage", "Cross-docking", "Transloading", "Kitting", "Assembly"],
+                "fulfillment": ["B2B", "B2C", "D2C", "Subscription box", "FBA prep"],
+                "value_added": ["Returns processing", "Quality control", "Labeling", "Repackaging"],
+                "transportation": ["LTL", "FTL", "Parcel", "White glove", "International"]
+            },
+            "implementation_plan": {
+                "phase1": {"duration": "30 days", "activities": "Setup & Integration"},
+                "phase2": {"duration": "30 days", "activities": "Testing & Training"},
+                "phase3": {"duration": "30 days", "activities": "Go-live & Stabilization"},
+                "total_timeline": "90 days"
+            }
+        }
+    
+    @staticmethod
+    def generate_evaluation_scores():
+        """Generate mock evaluation scores"""
+        return {
+            "technical_capability": random.randint(70, 95),
+            "operational_excellence": random.randint(75, 95),
+            "pricing_competitiveness": random.randint(65, 90),
+            "compliance_security": random.randint(80, 100),
+            "innovation_technology": random.randint(70, 95),
+            "customer_service": random.randint(75, 95),
+            "financial_stability": random.randint(70, 95),
+            "implementation_approach": random.randint(75, 90),
+            "risk_management": random.randint(70, 90),
+            "sustainability": random.randint(60, 85)
+        }
 
 # ========================================
 # CORE CLASSES
@@ -194,602 +272,430 @@ st.markdown("""
 
 class WorkflowStage:
     """Represents a stage in the RFP workflow"""
-    def __init__(self, stage_id: str, name: str, description: str, required_docs: List[str], 
-                 outputs: List[str], status: str = "pending"):
+    def __init__(self, stage_id: str, stage_num: int, name: str, description: str, 
+                 required_docs: List[str], deliverables: List[str], duration: str):
         self.stage_id = stage_id
+        self.stage_num = stage_num
         self.name = name
         self.description = description
         self.required_docs = required_docs
-        self.outputs = outputs
-        self.status = status
-        self.completion_date = None
+        self.deliverables = deliverables
+        self.duration = duration
+        self.status = "pending"
+        self.progress = 0
+        self.start_date = None
+        self.end_date = None
         self.assigned_to = None
         self.notes = []
+        self.documents = {}
+        
+    def start(self):
+        """Start the workflow stage"""
+        self.status = "active"
+        self.start_date = datetime.now()
+        self.progress = 10
+        
+    def complete(self):
+        """Complete the workflow stage"""
+        self.status = "complete"
+        self.end_date = datetime.now()
+        self.progress = 100
+        
+    def update_progress(self, progress: int):
+        """Update stage progress"""
+        self.progress = min(100, max(0, progress))
+        if self.progress == 100 and self.status != "complete":
+            self.complete()
 
 class VendorProfile:
-    """Comprehensive vendor profile management"""
-    def __init__(self, vendor_id: str, name: str):
+    """Vendor profile with complete information"""
+    def __init__(self, vendor_id: str, name: str, contact_email: str = None):
         self.vendor_id = vendor_id
         self.name = name
-        self.submission_date = datetime.now()
+        self.contact_email = contact_email or f"vendor@{name.lower().replace(' ', '')}.com"
+        self.registration_date = datetime.now()
         self.documents = {}
         self.scores = {}
-        self.status = "Under Review"
-        self.risk_assessment = {}
-        self.compliance_status = {}
-        self.communication_history = []
-        self.decision = None
-        self.contract_terms = {}
-
-class DocumentAnalyzer:
-    """Enhanced document analysis with multi-document support"""
-    def __init__(self, claude_client):
-        self.claude_client = claude_client
-        self.document_cache = {}
+        self.overall_score = 0
+        self.status = "Registered"
+        self.submission_date = None
+        self.evaluation_date = None
+        self.notes = []
+        self.strengths = []
+        self.weaknesses = []
+        self.risks = []
+        self.mock_data = MockDataGenerator.generate_vendor_response()
         
-    def extract_text_from_file(self, uploaded_file) -> Optional[str]:
-        """Extract text from various file formats"""
-        try:
-            file_extension = uploaded_file.name.split('.')[-1].lower()
-            
-            if file_extension == 'pdf':
-                return self._extract_pdf_text(uploaded_file)
-            elif file_extension in ['doc', 'docx']:
-                return self._extract_docx_text(uploaded_file)
-            elif file_extension in ['ppt', 'pptx']:
-                return self._extract_pptx_text(uploaded_file)
-            elif file_extension in ['xlsx', 'xls']:
-                return self._extract_excel_text(uploaded_file)
-            else:
-                return None
-        except Exception as e:
-            st.error(f"Error extracting text from {uploaded_file.name}: {str(e)}")
-            return None
-    
-    def _extract_pdf_text(self, pdf_file) -> str:
-        """Extract text from PDF"""
-        text = ""
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        for page_num, page in enumerate(pdf_reader.pages, 1):
-            text += f"\n[Page {page_num}]\n"
-            text += page.extract_text() + "\n"
-        return text
-    
-    def _extract_docx_text(self, docx_file) -> str:
-        """Extract text from Word document"""
-        doc = docx.Document(docx_file)
-        text = ""
-        for para_num, paragraph in enumerate(doc.paragraphs, 1):
-            if paragraph.text.strip():
-                text += f"[Para {para_num}] {paragraph.text}\n"
+    def submit_proposal(self, documents: Dict):
+        """Submit vendor proposal"""
+        self.documents.update(documents)
+        self.submission_date = datetime.now()
+        self.status = "Submitted"
         
-        # Extract tables
-        for table_num, table in enumerate(doc.tables, 1):
-            text += f"\n[Table {table_num}]\n"
-            for row in table.rows:
-                row_text = []
-                for cell in row.cells:
-                    row_text.append(cell.text.strip())
-                text += " | ".join(row_text) + "\n"
-        return text
-    
-    def _extract_pptx_text(self, pptx_file) -> str:
-        """Extract text from PowerPoint"""
-        prs = Presentation(pptx_file)
-        text = ""
-        for slide_num, slide in enumerate(prs.slides, 1):
-            text += f"\n[Slide {slide_num}]\n"
-            for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    text += shape.text + "\n"
-        return text
-    
-    def _extract_excel_text(self, excel_file) -> str:
-        """Extract text from Excel"""
-        text = ""
-        try:
-            df_dict = pd.read_excel(excel_file, sheet_name=None)
-            for sheet_name, df in df_dict.items():
-                text += f"\n[Sheet: {sheet_name}]\n"
-                text += df.to_string() + "\n"
-        except Exception as e:
-            text = f"Error reading Excel file: {str(e)}"
-        return text
+    def evaluate(self):
+        """Evaluate vendor proposal"""
+        self.scores = MockDataGenerator.generate_evaluation_scores()
+        self.overall_score = sum(self.scores.values()) / len(self.scores)
+        self.evaluation_date = datetime.now()
+        self.status = "Evaluated"
+        
+        # Generate strengths and weaknesses
+        self.strengths = [
+            k.replace('_', ' ').title() 
+            for k, v in self.scores.items() if v >= 85
+        ]
+        self.weaknesses = [
+            k.replace('_', ' ').title() 
+            for k, v in self.scores.items() if v < 75
+        ]
 
-class UPSRFPAnalyzer:
-    """Main RFP Analysis Engine for UPS GLD"""
+class RFPAnalyzer:
+    """Main RFP Analysis Engine"""
     def __init__(self):
-        self.claude_client = None
-        self.document_analyzer = None
-        self.vendors = {}
         self.workflow_stages = self._initialize_workflow()
-        self.evaluation_criteria = self._get_evaluation_criteria()
+        self.vendors = {}
+        self.current_rfp = self._generate_rfp_details()
+        self.claude_client = None
         self.initialize_claude()
         
+    def _generate_rfp_details(self):
+        """Generate RFP details"""
+        return {
+            "rfp_id": f"RFP-2025-{str(uuid.uuid4())[:8].upper()}",
+            "title": "Warehouse and Logistics Services RFP",
+            "issue_date": datetime.now() - timedelta(days=7),
+            "due_date": datetime.now() + timedelta(days=21),
+            "budget": "$5,000,000 - $10,000,000",
+            "contract_duration": "3 years with 2 optional 1-year extensions",
+            "services_required": [
+                "Warehousing (500,000+ sq ft)",
+                "Order Fulfillment",
+                "Transportation Management",
+                "Returns Processing",
+                "Value-Added Services"
+            ],
+            "evaluation_criteria": {
+                "Technical Capability": 25,
+                "Price": 20,
+                "Experience": 20,
+                "Compliance": 15,
+                "Innovation": 10,
+                "Sustainability": 10
+            }
+        }
+    
     def initialize_claude(self):
-        """Initialize Claude API with robust error handling"""
+        """Initialize Claude API"""
         try:
-            api_key = (st.secrets.get("CLAUDE_API_KEY") or 
-                      st.secrets.get("ANTHROPIC_API_KEY") or 
-                      st.secrets.get("claude_api_key") or 
-                      st.secrets.get("anthropic_api_key"))
+            # Try multiple possible secret keys
+            api_key = None
+            for key in ["CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "claude_api_key", "anthropic_api_key"]:
+                try:
+                    api_key = st.secrets.get(key)
+                    if api_key:
+                        break
+                except:
+                    pass
             
             if api_key:
                 self.claude_client = anthropic.Anthropic(api_key=api_key)
-                self.document_analyzer = DocumentAnalyzer(self.claude_client)
                 return True
             else:
-                st.error("❌ Claude API key not found. Please configure in Streamlit secrets.")
+                # Work without API for demo
                 return False
         except Exception as e:
-            st.error(f"❌ Error initializing Claude API: {str(e)}")
             return False
     
     def _initialize_workflow(self) -> Dict[str, WorkflowStage]:
-        """Initialize the complete RFP workflow stages"""
-        stages = {
-            "initiation": WorkflowStage(
-                "initiation", 
-                "1. RFP Initiation",
-                "Request received from UPS customer for logistics services",
-                ["Initial Request", "Service Requirements"],
-                ["RFP Package", "Timeline", "Budget Estimate"]
-            ),
-            "documentation": WorkflowStage(
-                "documentation",
-                "2. Documentation Preparation",
-                "Compile all required RFP documents and specifications",
-                ["SOW Templates", "Service Specifications", "Quality Requirements"],
-                ["Complete RFP Package", "Vendor Questionnaires"]
-            ),
-            "vendor_identification": WorkflowStage(
-                "vendor_identification",
-                "3. Vendor Identification",
-                "Identify and pre-qualify potential vendors",
-                ["Vendor Database", "Market Analysis"],
-                ["Qualified Vendor List", "Vendor Profiles"]
-            ),
-            "distribution": WorkflowStage(
-                "distribution",
-                "4. RFP Distribution",
-                "Send RFP package to qualified vendors",
-                ["RFP Package", "Distribution List"],
-                ["Confirmation of Receipt", "Q&A Schedule"]
-            ),
-            "qa_period": WorkflowStage(
-                "qa_period",
-                "5. Q&A Period",
-                "Address vendor questions and clarifications",
-                ["Vendor Questions", "Technical Specifications"],
-                ["Q&A Responses", "Addendums"]
-            ),
-            "submission": WorkflowStage(
-                "submission",
-                "6. Proposal Submission",
-                "Receive and validate vendor proposals",
-                ["Vendor Proposals", "Supporting Documents"],
-                ["Validated Submissions", "Compliance Matrix"]
-            ),
-            "technical_evaluation": WorkflowStage(
-                "technical_evaluation",
-                "7. Technical Evaluation",
-                "Evaluate technical capabilities and approach",
-                ["Technical Proposals", "Architecture Documents"],
-                ["Technical Scores", "Risk Assessment"]
-            ),
-            "commercial_evaluation": WorkflowStage(
-                "commercial_evaluation",
-                "8. Commercial Evaluation",
-                "Analyze pricing and commercial terms",
-                ["Pricing Proposals", "Payment Terms"],
-                ["Commercial Scores", "Cost Analysis"]
-            ),
-            "final_selection": WorkflowStage(
-                "final_selection",
-                "9. Final Selection",
-                "Select winning vendor(s)",
-                ["Evaluation Matrix", "Stakeholder Input"],
-                ["Selected Vendor", "Negotiation Points"]
-            ),
-            "contract_negotiation": WorkflowStage(
-                "contract_negotiation",
-                "10. Contract Negotiation",
-                "Negotiate final terms and conditions",
-                ["Draft Contract", "Terms & Conditions"],
-                ["Final Contract", "SLAs"]
-            ),
-            "onboarding": WorkflowStage(
-                "onboarding",
-                "11. Vendor Onboarding",
-                "Onboard selected vendor and begin operations",
-                ["Signed Contract", "Implementation Plan"],
-                ["Kickoff Meeting", "Go-Live Schedule"]
+        """Initialize complete RFP workflow"""
+        stages = {}
+        
+        workflow_definition = [
+            {
+                "id": "planning",
+                "name": "RFP Planning & Strategy",
+                "desc": "Define requirements, budget, timeline, and evaluation criteria",
+                "docs": ["Business Requirements", "Budget Approval", "Stakeholder Input"],
+                "deliverables": ["RFP Strategy Document", "Timeline", "Evaluation Matrix"],
+                "duration": "5 days"
+            },
+            {
+                "id": "documentation",
+                "name": "RFP Documentation",
+                "desc": "Prepare comprehensive RFP package with all specifications",
+                "docs": ["Technical Specifications", "SOW Template", "Contract Terms"],
+                "deliverables": ["Complete RFP Package", "Attachments", "Q&A Template"],
+                "duration": "7 days"
+            },
+            {
+                "id": "vendor_identification",
+                "name": "Vendor Identification",
+                "desc": "Research and identify qualified vendors for RFP distribution",
+                "docs": ["Vendor Database", "Market Research", "Past Performance"],
+                "deliverables": ["Qualified Vendor List", "Contact Information"],
+                "duration": "3 days"
+            },
+            {
+                "id": "distribution",
+                "name": "RFP Distribution",
+                "desc": "Distribute RFP to qualified vendors and manage communications",
+                "docs": ["RFP Package", "NDA Forms", "Distribution List"],
+                "deliverables": ["Distribution Confirmation", "Vendor Acknowledgments"],
+                "duration": "2 days"
+            },
+            {
+                "id": "qa_period",
+                "name": "Q&A Period",
+                "desc": "Address vendor questions and provide clarifications",
+                "docs": ["Vendor Questions", "Technical Clarifications"],
+                "deliverables": ["Q&A Responses", "Addendums", "Updated RFP"],
+                "duration": "5 days"
+            },
+            {
+                "id": "submission",
+                "name": "Proposal Submission",
+                "desc": "Receive and validate vendor proposals",
+                "docs": ["Vendor Proposals", "Technical Documents", "Pricing Sheets"],
+                "deliverables": ["Submission Log", "Compliance Check", "Initial Review"],
+                "duration": "1 day"
+            },
+            {
+                "id": "evaluation",
+                "name": "Proposal Evaluation",
+                "desc": "Comprehensive evaluation of all vendor proposals",
+                "docs": ["Evaluation Matrix", "Scoring Sheets", "Reference Checks"],
+                "deliverables": ["Evaluation Report", "Vendor Scores", "Recommendations"],
+                "duration": "10 days"
+            },
+            {
+                "id": "clarification",
+                "name": "Vendor Clarifications",
+                "desc": "Request and review additional information from shortlisted vendors",
+                "docs": ["Clarification Requests", "Vendor Responses"],
+                "deliverables": ["Updated Evaluations", "Final Shortlist"],
+                "duration": "3 days"
+            },
+            {
+                "id": "negotiation",
+                "name": "Negotiation",
+                "desc": "Negotiate terms, pricing, and conditions with selected vendors",
+                "docs": ["Negotiation Strategy", "Price Analysis", "Terms Matrix"],
+                "deliverables": ["Negotiated Terms", "Best and Final Offers"],
+                "duration": "7 days"
+            },
+            {
+                "id": "selection",
+                "name": "Final Selection",
+                "desc": "Select winning vendor and prepare for contract award",
+                "docs": ["Final Evaluation", "Executive Approval", "Award Letter"],
+                "deliverables": ["Vendor Selection", "Award Notification", "Rejection Letters"],
+                "duration": "2 days"
+            },
+            {
+                "id": "contracting",
+                "name": "Contract Finalization",
+                "desc": "Finalize and execute contract with selected vendor",
+                "docs": ["Contract Draft", "Legal Review", "Signatures"],
+                "deliverables": ["Executed Contract", "SLAs", "KPIs"],
+                "duration": "5 days"
+            },
+            {
+                "id": "implementation",
+                "name": "Implementation Planning",
+                "desc": "Plan transition and implementation with selected vendor",
+                "docs": ["Implementation Plan", "Transition Schedule", "Resource Plan"],
+                "deliverables": ["Kickoff Meeting", "Project Plan", "Success Metrics"],
+                "duration": "3 days"
+            }
+        ]
+        
+        for idx, stage_def in enumerate(workflow_definition, 1):
+            stages[stage_def["id"]] = WorkflowStage(
+                stage_def["id"],
+                idx,
+                stage_def["name"],
+                stage_def["desc"],
+                stage_def["docs"],
+                stage_def["deliverables"],
+                stage_def["duration"]
             )
-        }
+        
         return stages
     
-    def _get_evaluation_criteria(self) -> Dict[str, Dict]:
-        """Define comprehensive evaluation criteria for UPS GLD"""
-        return {
-            "warehouse_operations": {
-                "weight": 0.20,
-                "subcriteria": {
-                    "facility_capabilities": 0.30,
-                    "inventory_management": 0.25,
-                    "order_fulfillment": 0.25,
-                    "technology_integration": 0.20
-                }
-            },
-            "customer_service": {
-                "weight": 0.15,
-                "subcriteria": {
-                    "rma_processing": 0.35,
-                    "response_time": 0.25,
-                    "issue_resolution": 0.20,
-                    "communication": 0.20
-                }
-            },
-            "logistics_capability": {
-                "weight": 0.15,
-                "subcriteria": {
-                    "transportation_network": 0.30,
-                    "last_mile_delivery": 0.25,
-                    "international_shipping": 0.25,
-                    "tracking_visibility": 0.20
-                }
-            },
-            "compliance_security": {
-                "weight": 0.15,
-                "subcriteria": {
-                    "ctpat_certification": 0.30,
-                    "tapa_certification": 0.25,
-                    "data_security": 0.25,
-                    "regulatory_compliance": 0.20
-                }
-            },
-            "pricing_value": {
-                "weight": 0.15,
-                "subcriteria": {
-                    "cost_competitiveness": 0.35,
-                    "pricing_transparency": 0.25,
-                    "value_added_services": 0.20,
-                    "payment_terms": 0.20
-                }
-            },
-            "quality_systems": {
-                "weight": 0.10,
-                "subcriteria": {
-                    "iso_certification": 0.30,
-                    "quality_metrics": 0.25,
-                    "continuous_improvement": 0.25,
-                    "defect_management": 0.20
-                }
-            },
-            "technology_innovation": {
-                "weight": 0.10,
-                "subcriteria": {
-                    "system_integration": 0.30,
-                    "automation_level": 0.25,
-                    "reporting_analytics": 0.25,
-                    "innovation_roadmap": 0.20
-                }
-            }
-        }
-    
-    def analyze_documents(self, vendor_id: str, documents: Dict[str, Any]) -> Dict:
-        """Analyze multiple documents for a vendor"""
-        if not self.claude_client:
-            return {"error": "Claude API not initialized"}
+    def move_to_next_stage(self):
+        """Move to the next workflow stage"""
+        current_active = None
+        next_pending = None
         
-        combined_analysis = {
-            "vendor_id": vendor_id,
+        for stage_id, stage in self.workflow_stages.items():
+            if stage.status == "active" and stage.progress < 100:
+                return False, "Complete current stage first"
+            elif stage.status == "active" and stage.progress == 100:
+                current_active = stage
+            elif stage.status == "pending" and next_pending is None:
+                next_pending = stage
+        
+        if current_active:
+            current_active.complete()
+            
+        if next_pending:
+            next_pending.start()
+            return True, f"Started: {next_pending.name}"
+        
+        return False, "All stages complete"
+    
+    def get_workflow_progress(self):
+        """Calculate overall workflow progress"""
+        total_stages = len(self.workflow_stages)
+        completed_stages = sum(1 for s in self.workflow_stages.values() if s.status == "complete")
+        
+        if total_stages == 0:
+            return 0
+        
+        return int((completed_stages / total_stages) * 100)
+    
+    def analyze_vendor_proposal(self, vendor: VendorProfile, documents: Dict) -> Dict:
+        """Analyze vendor proposal with or without Claude API"""
+        analysis_results = {
+            "vendor_id": vendor.vendor_id,
+            "vendor_name": vendor.name,
             "analysis_date": datetime.now().isoformat(),
             "document_count": len(documents),
-            "documents_analyzed": [],
-            "consolidated_scores": {},
-            "key_findings": [],
-            "risks": {"high": [], "medium": [], "low": []},
-            "recommendations": [],
-            "compliance_check": {},
-            "service_capabilities": {}
+            "executive_summary": self._generate_executive_summary(vendor),
+            "scores": vendor.scores,
+            "overall_score": vendor.overall_score,
+            "strengths": vendor.strengths,
+            "weaknesses": vendor.weaknesses,
+            "risks": self._identify_risks(vendor),
+            "recommendations": self._generate_recommendations(vendor),
+            "compliance_status": self._check_compliance(vendor),
+            "technical_evaluation": self._evaluate_technical(vendor),
+            "commercial_evaluation": self._evaluate_commercial(vendor),
+            "next_steps": self._suggest_next_steps(vendor)
         }
         
-        # Analyze each document
-        for doc_name, doc_content in documents.items():
-            if doc_content:
-                doc_analysis = self._analyze_single_document(doc_name, doc_content)
-                combined_analysis["documents_analyzed"].append({
-                    "name": doc_name,
-                    "type": self._identify_document_type(doc_name),
-                    "analysis": doc_analysis
-                })
-        
-        # Consolidate findings
-        combined_analysis = self._consolidate_analysis(combined_analysis)
-        
-        return combined_analysis
+        return analysis_results
     
-    def _identify_document_type(self, filename: str) -> str:
-        """Identify document type based on filename patterns"""
-        filename_lower = filename.lower()
-        
-        if "sow" in filename_lower or "statement" in filename_lower:
-            return "Statement of Work"
-        elif "pricing" in filename_lower or "cost" in filename_lower or "financial" in filename_lower:
-            return "Pricing/Financial"
-        elif "quality" in filename_lower or "qms" in filename_lower:
-            return "Quality Documentation"
-        elif "infosec" in filename_lower or "security" in filename_lower:
-            return "Security/InfoSec"
-        elif "questionnaire" in filename_lower or "rfi" in filename_lower:
-            return "Questionnaire/RFI"
-        elif "warehouse" in filename_lower or "logistics" in filename_lower:
-            return "Warehouse/Logistics"
-        elif "contract" in filename_lower or "agreement" in filename_lower:
-            return "Contract/Agreement"
-        elif "technical" in filename_lower or "architecture" in filename_lower:
-            return "Technical Specification"
-        else:
-            return "General Document"
-    
-    def _analyze_single_document(self, doc_name: str, doc_content: str) -> Dict:
-        """Analyze a single document using Claude"""
-        doc_type = self._identify_document_type(doc_name)
-        
-        prompt = f"""
-        You are analyzing a {doc_type} document for UPS Global Logistics & Distribution RFP evaluation.
-        
-        Document Name: {doc_name}
-        Document Type: {doc_type}
-        
-        DOCUMENT CONTENT (First 5000 chars):
-        {doc_content[:5000]}
-        
-        Please provide a comprehensive analysis in JSON format:
-        {{
-            "document_summary": {{
-                "purpose": "Main purpose of this document",
-                "scope": "Scope covered",
-                "key_services": ["Service 1", "Service 2"],
-                "critical_requirements": ["Requirement 1", "Requirement 2"]
-            }},
-            "service_capabilities": {{
-                "warehouse_operations": "Details if mentioned",
-                "customer_service": "CSO/RMA capabilities",
-                "logistics": "Transportation and delivery",
-                "technology": "Systems and integration",
-                "quality": "Quality measures"
-            }},
-            "compliance_requirements": {{
-                "ctpat": "C-TPAT requirement status",
-                "tapa": "TAPA certification requirement",
-                "iso": "ISO certifications required",
-                "data_security": "Data security requirements",
-                "other": "Other compliance needs"
-            }},
-            "pricing_structure": {{
-                "model": "Pricing model if mentioned",
-                "key_cost_drivers": ["Driver 1", "Driver 2"],
-                "payment_terms": "Payment terms if specified"
-            }},
-            "risks_identified": {{
-                "operational": ["Risk 1", "Risk 2"],
-                "financial": ["Risk 1"],
-                "compliance": ["Risk 1"],
-                "technical": ["Risk 1"]
-            }},
-            "sla_metrics": {{
-                "turnaround_time": "TAT requirements",
-                "accuracy": "Accuracy requirements",
-                "availability": "Service availability"
-            }},
-            "key_findings": [
-                "Finding 1",
-                "Finding 2",
-                "Finding 3"
-            ]
-        }}
+    def _generate_executive_summary(self, vendor: VendorProfile) -> str:
+        """Generate executive summary"""
+        return f"""
+        {vendor.name} has submitted a comprehensive proposal for warehouse and logistics services.
+        The vendor demonstrates {len(vendor.strengths)} key strengths with an overall score of 
+        {vendor.overall_score:.1f}/100. They have {vendor.mock_data['company_profile']['locations']} 
+        locations and serve {vendor.mock_data['company_profile']['clients']} clients globally.
+        Key differentiators include {', '.join(vendor.mock_data['technical_proposal']['technology_stack'][:3])}.
         """
-        
-        try:
-            response = self.claude_client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=3000,
-                temperature=0.3,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            response_text = response.content[0].text
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            
-            if json_start != -1 and json_end != -1:
-                return json.loads(response_text[json_start:json_end])
-            else:
-                return {"error": "Could not parse analysis"}
-        except Exception as e:
-            return {"error": str(e)}
     
-    def _consolidate_analysis(self, combined_analysis: Dict) -> Dict:
-        """Consolidate analysis from multiple documents"""
-        if not combined_analysis["documents_analyzed"]:
-            return combined_analysis
+    def _identify_risks(self, vendor: VendorProfile) -> List[Dict]:
+        """Identify potential risks"""
+        risks = []
         
-        # Aggregate service capabilities
-        service_scores = {}
-        for criteria in self.evaluation_criteria.keys():
-            scores = []
-            for doc in combined_analysis["documents_analyzed"]:
-                if "analysis" in doc and not isinstance(doc["analysis"], dict) or "error" not in doc["analysis"]:
-                    # Extract relevant scores based on document content
-                    scores.append(self._calculate_criteria_score(criteria, doc["analysis"]))
-            
-            if scores:
-                service_scores[criteria] = sum(scores) / len(scores)
+        if vendor.overall_score < 70:
+            risks.append({
+                "category": "Performance",
+                "level": "High",
+                "description": "Overall score below acceptable threshold",
+                "mitigation": "Request performance guarantees and enhanced SLAs"
+            })
         
-        combined_analysis["consolidated_scores"] = service_scores
+        if vendor.scores.get("financial_stability", 0) < 75:
+            risks.append({
+                "category": "Financial",
+                "level": "Medium",
+                "description": "Financial stability concerns",
+                "mitigation": "Request financial guarantees or parent company backing"
+            })
         
-        # Calculate overall score
-        overall_score = 0
-        for criteria, score in service_scores.items():
-            weight = self.evaluation_criteria[criteria]["weight"]
-            overall_score += score * weight
+        if vendor.scores.get("compliance_security", 0) < 80:
+            risks.append({
+                "category": "Compliance",
+                "level": "Medium",
+                "description": "Compliance gaps identified",
+                "mitigation": "Require compliance roadmap and timeline"
+            })
         
-        combined_analysis["overall_score"] = round(overall_score, 2)
-        
-        # Aggregate risks
-        for doc in combined_analysis["documents_analyzed"]:
-            if "analysis" in doc and isinstance(doc["analysis"], dict):
-                if "risks_identified" in doc["analysis"]:
-                    risks = doc["analysis"]["risks_identified"]
-                    # Categorize risks
-                    for risk_type, risk_list in risks.items():
-                        if isinstance(risk_list, list):
-                            for risk in risk_list:
-                                if "critical" in risk.lower() or "high" in risk.lower():
-                                    combined_analysis["risks"]["high"].append(risk)
-                                elif "medium" in risk.lower() or "moderate" in risk.lower():
-                                    combined_analysis["risks"]["medium"].append(risk)
-                                else:
-                                    combined_analysis["risks"]["low"].append(risk)
-        
-        return combined_analysis
+        return risks
     
-    def _calculate_criteria_score(self, criteria: str, analysis: Dict) -> float:
-        """Calculate score for a specific criteria based on document analysis"""
-        # Simplified scoring logic - in production, this would be more sophisticated
-        base_score = 70  # Base score
+    def _generate_recommendations(self, vendor: VendorProfile) -> List[str]:
+        """Generate recommendations"""
+        recommendations = []
         
-        # Adjust based on document completeness and requirements met
-        if "service_capabilities" in analysis:
-            if criteria in ["warehouse_operations", "customer_service", "logistics"]:
-                capabilities = analysis.get("service_capabilities", {})
-                if capabilities.get(criteria.replace("_", " ")):
-                    base_score += 10
+        if vendor.overall_score >= 85:
+            recommendations.append("Strong candidate - proceed to final negotiations")
+        elif vendor.overall_score >= 75:
+            recommendations.append("Qualified candidate - request clarifications on weak areas")
+        elif vendor.overall_score >= 65:
+            recommendations.append("Marginal candidate - significant improvements needed")
+        else:
+            recommendations.append("Not recommended - does not meet minimum requirements")
         
-        if "compliance_requirements" in analysis:
-            if criteria == "compliance_security":
-                compliance = analysis.get("compliance_requirements", {})
-                if compliance.get("ctpat") and compliance.get("tapa"):
-                    base_score += 15
+        if vendor.strengths:
+            recommendations.append(f"Leverage strengths in: {', '.join(vendor.strengths[:3])}")
         
-        if "sla_metrics" in analysis:
-            if criteria == "quality_systems":
-                sla = analysis.get("sla_metrics", {})
-                if sla.get("accuracy") and sla.get("turnaround_time"):
-                    base_score += 10
+        if vendor.weaknesses:
+            recommendations.append(f"Address weaknesses in: {', '.join(vendor.weaknesses[:3])}")
         
-        return min(base_score, 100)
+        return recommendations
     
-    def generate_vendor_comparison(self, vendors: Dict[str, VendorProfile]) -> pd.DataFrame:
-        """Generate comprehensive vendor comparison matrix"""
-        comparison_data = []
-        
-        for vendor_id, vendor in vendors.items():
-            vendor_data = {
-                "Vendor": vendor.name,
-                "Submission Date": vendor.submission_date.strftime("%Y-%m-%d"),
-                "Documents": len(vendor.documents),
-                "Overall Score": vendor.scores.get("overall", 0),
-                "Status": vendor.status
-            }
-            
-            # Add scores for each criteria
-            for criteria in self.evaluation_criteria.keys():
-                criteria_name = criteria.replace("_", " ").title()
-                vendor_data[criteria_name] = vendor.scores.get(criteria, 0)
-            
-            comparison_data.append(vendor_data)
-        
-        return pd.DataFrame(comparison_data)
+    def _check_compliance(self, vendor: VendorProfile) -> Dict:
+        """Check compliance status"""
+        return {
+            "iso_9001": "Compliant" if "ISO 9001" in vendor.mock_data['company_profile']['certifications'] else "Missing",
+            "iso_14001": "Compliant" if "ISO 14001" in vendor.mock_data['company_profile']['certifications'] else "Missing",
+            "c_tpat": "Compliant" if "C-TPAT" in vendor.mock_data['company_profile']['certifications'] else "Missing",
+            "tapa": "Compliant" if "TAPA FSR" in vendor.mock_data['company_profile']['certifications'] else "Missing",
+            "data_security": "Compliant" if vendor.scores.get("compliance_security", 0) >= 80 else "Review Required",
+            "insurance": "Adequate" if vendor.scores.get("financial_stability", 0) >= 75 else "Review Required"
+        }
     
-    def export_evaluation_report(self, vendor: VendorProfile, analysis: Dict) -> bytes:
-        """Generate comprehensive evaluation report in Excel format"""
-        output = io.BytesIO()
+    def _evaluate_technical(self, vendor: VendorProfile) -> Dict:
+        """Evaluate technical capabilities"""
+        return {
+            "warehouse_capacity": vendor.mock_data['technical_proposal']['total_sqft'],
+            "technology_score": vendor.scores.get("innovation_technology", 0),
+            "automation_level": vendor.mock_data['technical_proposal']['automation_level'],
+            "order_accuracy": vendor.mock_data['technical_proposal']['order_accuracy'],
+            "on_time_delivery": vendor.mock_data['technical_proposal']['on_time_delivery'],
+            "systems_integration": "Advanced" if vendor.scores.get("innovation_technology", 0) >= 80 else "Standard"
+        }
+    
+    def _evaluate_commercial(self, vendor: VendorProfile) -> Dict:
+        """Evaluate commercial terms"""
+        return {
+            "pricing_model": "Competitive" if vendor.scores.get("pricing_competitiveness", 0) >= 75 else "Above Market",
+            "contract_flexibility": vendor.mock_data['pricing']['contract_term'],
+            "payment_terms": "Net 30",
+            "volume_discounts": vendor.mock_data['pricing']['volume_discounts'],
+            "price_score": vendor.scores.get("pricing_competitiveness", 0),
+            "total_cost_estimate": f"${random.randint(5, 10)}M annually"
+        }
+    
+    def _suggest_next_steps(self, vendor: VendorProfile) -> List[str]:
+        """Suggest next steps"""
+        steps = []
         
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Summary Sheet
-            summary_data = {
-                "Vendor Information": [
-                    ["Vendor Name", vendor.name],
-                    ["Vendor ID", vendor.vendor_id],
-                    ["Submission Date", vendor.submission_date.strftime("%Y-%m-%d %H:%M")],
-                    ["Overall Score", analysis.get("overall_score", 0)],
-                    ["Status", vendor.status],
-                    ["Documents Analyzed", analysis.get("document_count", 0)]
-                ]
-            }
-            
-            df_summary = pd.DataFrame(summary_data["Vendor Information"], 
-                                     columns=["Field", "Value"])
-            df_summary.to_excel(writer, sheet_name="Executive Summary", index=False)
-            
-            # Detailed Scores Sheet
-            scores_data = []
-            for criteria, score in analysis.get("consolidated_scores", {}).items():
-                scores_data.append([
-                    criteria.replace("_", " ").title(),
-                    self.evaluation_criteria[criteria]["weight"],
-                    score,
-                    score * self.evaluation_criteria[criteria]["weight"]
-                ])
-            
-            df_scores = pd.DataFrame(scores_data, 
-                                    columns=["Criteria", "Weight", "Score", "Weighted Score"])
-            df_scores.to_excel(writer, sheet_name="Scoring Details", index=False)
-            
-            # Risk Assessment Sheet
-            risks_data = []
-            for level, risks in analysis.get("risks", {}).items():
-                for risk in risks:
-                    risks_data.append([level.upper(), risk])
-            
-            if risks_data:
-                df_risks = pd.DataFrame(risks_data, columns=["Risk Level", "Description"])
-                df_risks.to_excel(writer, sheet_name="Risk Assessment", index=False)
-            
-            # Document Analysis Sheet
-            doc_analysis_data = []
-            for doc in analysis.get("documents_analyzed", []):
-                doc_analysis_data.append([
-                    doc["name"],
-                    doc["type"],
-                    "Analyzed" if "analysis" in doc else "Error"
-                ])
-            
-            df_docs = pd.DataFrame(doc_analysis_data, 
-                                  columns=["Document Name", "Type", "Status"])
-            df_docs.to_excel(writer, sheet_name="Documents", index=False)
-            
-            # Format the Excel file
-            workbook = writer.book
-            for sheet_name in workbook.sheetnames:
-                worksheet = workbook[sheet_name]
-                
-                # Header formatting
-                header_fill = PatternFill(start_color="351C15", end_color="351C15", fill_type="solid")
-                header_font = Font(color="FFFFFF", bold=True)
-                
-                for cell in worksheet[1]:
-                    cell.fill = header_fill
-                    cell.font = header_font
-                    cell.alignment = Alignment(horizontal="center")
-                
-                # Auto-adjust column widths
-                for column in worksheet.columns:
-                    max_length = 0
-                    column_letter = column[0].column_letter
-                    for cell in column:
-                        try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
-                        except:
-                            pass
-                    adjusted_width = min(max_length + 2, 50)
-                    worksheet.column_dimensions[column_letter].width = adjusted_width
+        if vendor.overall_score >= 80:
+            steps.extend([
+                "Schedule vendor presentation",
+                "Conduct site visit",
+                "Check references",
+                "Begin contract negotiations"
+            ])
+        elif vendor.overall_score >= 70:
+            steps.extend([
+                "Request additional information",
+                "Clarify pricing structure",
+                "Review implementation plan",
+                "Assess risk mitigation strategies"
+            ])
+        else:
+            steps.extend([
+                "Send regret letter",
+                "Provide feedback if requested",
+                "Keep vendor in database for future RFPs"
+            ])
         
-        output.seek(0)
-        return output.read()
+        return steps
 
 # ========================================
 # UI COMPONENTS
@@ -799,210 +705,308 @@ def render_header():
     """Render application header"""
     st.markdown("""
     <div class="main-header">
-        <h1>📦 UPS Global Logistics & Distribution</h1>
-        <h2>RFP Vendor Management System</h2>
-        <p>Enterprise Procurement Platform for Warehouse, CSO, and CSG Services</p>
+        <h1>🎯 RFP Vendor Management System</h1>
+        <h3>End-to-End Procurement Workflow with AI-Powered Analysis</h3>
+        <p>Streamline your RFP process from planning to contract execution</p>
     </div>
     """, unsafe_allow_html=True)
 
-def render_workflow_status(analyzer: UPSRFPAnalyzer):
-    """Render workflow status timeline"""
-    st.subheader("📋 RFP Workflow Status")
+def render_workflow_timeline(analyzer: RFPAnalyzer):
+    """Render interactive workflow timeline"""
+    st.subheader("📋 RFP Workflow Timeline")
     
-    cols = st.columns(len(analyzer.workflow_stages))
+    # Progress bar
+    progress = analyzer.get_workflow_progress()
+    st.markdown(f"""
+    <div class="progress-bar">
+        <div class="progress-fill" style="width: {progress}%;">
+            {progress}% Complete
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Timeline view
+    cols = st.columns(4)
     
     for idx, (stage_id, stage) in enumerate(analyzer.workflow_stages.items()):
-        with cols[idx % len(cols)]:
-            if stage.status == "completed":
-                status_class = "stage-complete"
+        col = cols[idx % 4]
+        
+        with col:
+            # Determine stage styling
+            if stage.status == "complete":
+                color = "var(--success)"
                 icon = "✅"
+                card_class = "stage-complete"
             elif stage.status == "active":
-                status_class = "stage-active"
+                color = "var(--warning)"
                 icon = "🔄"
+                card_class = "stage-active"
             else:
-                status_class = "workflow-stage"
+                color = "#95A5A6"
                 icon = "⏳"
+                card_class = "stage-pending"
             
             st.markdown(f"""
-            <div class="{status_class}">
-                <strong>{icon} Stage {idx + 1}</strong><br>
-                <small>{stage.name.split('. ')[1]}</small>
+            <div class="workflow-card {card_class}">
+                <div class="timeline-marker" style="background: {color};">
+                    {stage.stage_num}
+                </div>
+                <h4>{icon} {stage.name}</h4>
+                <p style="font-size: 0.9em; color: #666;">{stage.description}</p>
+                <p style="font-size: 0.85em;">
+                    <strong>Duration:</strong> {stage.duration}<br>
+                    <strong>Status:</strong> {stage.status.title()}<br>
+                    <strong>Progress:</strong> {stage.progress}%
+                </p>
             </div>
             """, unsafe_allow_html=True)
+            
+            # Action buttons for active stages
+            if stage.status == "pending":
+                if st.button(f"Start Stage", key=f"start_{stage_id}"):
+                    # Check if previous stages are complete
+                    can_start = True
+                    for check_stage in analyzer.workflow_stages.values():
+                        if check_stage.stage_num < stage.stage_num and check_stage.status != "complete":
+                            can_start = False
+                            st.error(f"Complete '{check_stage.name}' first")
+                            break
+                    
+                    if can_start:
+                        stage.start()
+                        st.success(f"Started: {stage.name}")
+                        st.rerun()
+            
+            elif stage.status == "active":
+                # Progress slider
+                new_progress = st.slider(
+                    "Update Progress",
+                    0, 100, stage.progress,
+                    key=f"progress_{stage_id}"
+                )
+                
+                if new_progress != stage.progress:
+                    stage.update_progress(new_progress)
+                    if stage.status == "complete":
+                        st.success(f"Completed: {stage.name}")
+                    st.rerun()
+                
+                # Complete button
+                if stage.progress < 100:
+                    if st.button(f"Complete Stage", key=f"complete_{stage_id}"):
+                        stage.complete()
+                        st.success(f"Completed: {stage.name}")
+                        st.rerun()
 
-def render_vendor_management(analyzer: UPSRFPAnalyzer):
-    """Render vendor management interface"""
-    st.header("👥 Vendor Management")
+def render_document_upload(analyzer: RFPAnalyzer):
+    """Render comprehensive document upload interface"""
+    st.subheader("📤 Document Upload Center")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📤 Document Upload", "📊 Analysis", "📈 Comparison", "💬 Q&A"])
+    tab1, tab2, tab3 = st.tabs(["📄 Upload RFP", "👥 Vendor Proposals", "📁 Supporting Docs"])
     
     with tab1:
-        render_document_upload(analyzer)
+        st.markdown("### Upload Complete RFP Package")
+        st.info("Upload your entire RFP document or multiple files that comprise the RFP")
+        
+        # RFP document upload
+        rfp_files = st.file_uploader(
+            "Select RFP Documents",
+            type=['pdf', 'docx', 'doc', 'pptx', 'xlsx'],
+            accept_multiple_files=True,
+            key="rfp_upload",
+            help="Upload complete RFP package including SOW, specifications, terms, etc."
+        )
+        
+        if rfp_files:
+            st.success(f"✅ Uploaded {len(rfp_files)} RFP document(s)")
+            
+            # Display uploaded files
+            for file in rfp_files:
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col1:
+                    st.write(f"📄 {file.name}")
+                with col2:
+                    st.write(f"{file.size // 1024} KB")
+                with col3:
+                    if st.button("Remove", key=f"remove_rfp_{file.name}"):
+                        st.info("File removed")
+            
+            if st.button("Process RFP Documents", type="primary"):
+                with st.spinner("Processing RFP documents..."):
+                    time.sleep(2)
+                    st.success("✅ RFP documents processed successfully!")
+                    
+                    # Update workflow stage
+                    analyzer.workflow_stages["documentation"].update_progress(100)
+                    st.rerun()
     
     with tab2:
-        render_analysis_results(analyzer)
+        st.markdown("### Vendor Proposal Submission")
+        
+        # Vendor selection
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            vendor_name = st.text_input(
+                "Vendor Name",
+                placeholder="Enter vendor company name"
+            )
+        
+        with col2:
+            vendor_email = st.text_input(
+                "Contact Email",
+                placeholder="vendor@example.com"
+            )
+        
+        if vendor_name:
+            # Generate vendor ID
+            vendor_id = f"VND-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
+            st.info(f"Vendor ID: {vendor_id}")
+            
+            # Document categories for vendor upload
+            st.markdown("#### Required Vendor Documents")
+            
+            vendor_docs = {}
+            
+            doc_requirements = {
+                "Technical Proposal": "Technical approach, architecture, capabilities",
+                "Pricing Proposal": "Detailed pricing, payment terms, discounts",
+                "Company Profile": "Company overview, certifications, references",
+                "Financial Statements": "Last 3 years financial statements",
+                "Implementation Plan": "Timeline, resources, milestones",
+                "Compliance Documents": "Certifications, insurance, security"
+            }
+            
+            for doc_type, description in doc_requirements.items():
+                with st.expander(f"📁 {doc_type}"):
+                    st.caption(description)
+                    uploaded_file = st.file_uploader(
+                        f"Upload {doc_type}",
+                        type=['pdf', 'docx', 'doc', 'pptx', 'xlsx'],
+                        key=f"vendor_{doc_type.replace(' ', '_').lower()}"
+                    )
+                    if uploaded_file:
+                        vendor_docs[doc_type] = uploaded_file
+                        st.success(f"✅ {uploaded_file.name} uploaded")
+            
+            # Submit vendor proposal
+            if st.button("Submit Vendor Proposal", type="primary", disabled=not vendor_docs):
+                with st.spinner(f"Processing proposal from {vendor_name}..."):
+                    # Create vendor profile
+                    vendor = VendorProfile(vendor_id, vendor_name, vendor_email)
+                    vendor.submit_proposal(vendor_docs)
+                    vendor.evaluate()  # Auto-evaluate with mock scores
+                    
+                    # Store vendor
+                    if "vendors" not in st.session_state:
+                        st.session_state.vendors = {}
+                    st.session_state.vendors[vendor_id] = vendor
+                    
+                    time.sleep(2)
+                    st.success(f"✅ Proposal submitted successfully for {vendor_name}!")
+                    st.balloons()
+                    
+                    # Update workflow
+                    analyzer.workflow_stages["submission"].update_progress(100)
+                    st.rerun()
     
     with tab3:
-        render_vendor_comparison(analyzer)
-    
-    with tab4:
-        render_qa_interface(analyzer)
+        st.markdown("### Supporting Documentation")
+        
+        support_docs = {
+            "Market Research": "Upload market analysis, competitor research",
+            "Budget Approval": "Upload approved budget documentation",
+            "Stakeholder Requirements": "Upload stakeholder input and requirements",
+            "Evaluation Templates": "Upload scoring matrices and evaluation forms",
+            "Contract Templates": "Upload standard contract templates"
+        }
+        
+        for doc_type, description in support_docs.items():
+            with st.expander(f"📎 {doc_type}"):
+                st.caption(description)
+                file = st.file_uploader(
+                    f"Upload {doc_type}",
+                    type=['pdf', 'docx', 'doc', 'xlsx'],
+                    key=f"support_{doc_type.replace(' ', '_').lower()}"
+                )
+                if file:
+                    st.success(f"✅ {file.name} uploaded")
 
-def render_document_upload(analyzer: UPSRFPAnalyzer):
-    """Render multi-document upload interface"""
-    st.subheader("📄 Upload Vendor Documents")
+def render_vendor_evaluation(analyzer: RFPAnalyzer):
+    """Render vendor evaluation interface"""
+    st.subheader("📊 Vendor Evaluation")
     
-    # Vendor selection/creation
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        vendor_name = st.text_input("Vendor Name", placeholder="Enter vendor name (e.g., ABC Logistics Inc.)")
-    
-    with col2:
-        vendor_id = st.text_input("Vendor ID", value=f"VND-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}", 
-                                  disabled=True)
-    
-    # Document categories
-    st.write("**Required Documents:**")
-    
-    doc_categories = {
-        "Core Documents": [
-            "Statement of Work (SOW)",
-            "Pricing Proposal",
-            "Technical Proposal"
-        ],
-        "Compliance & Security": [
-            "InfoSec Questionnaire",
-            "C-TPAT Certification",
-            "TAPA Certification"
-        ],
-        "Service Specific": [
-            "Warehouse Operations SOW",
-            "Customer Service SOW",
-            "CSG Services SOW"
-        ],
-        "Supporting Documents": [
-            "Company Profile",
-            "Financial Statements",
-            "References"
-        ]
-    }
-    
-    uploaded_files = {}
-    
-    for category, docs in doc_categories.items():
-        with st.expander(f"📁 {category}", expanded=True):
-            cols = st.columns(2)
-            for idx, doc in enumerate(docs):
-                with cols[idx % 2]:
-                    file = st.file_uploader(
-                        doc,
-                        type=['pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls'],
-                        key=f"upload_{category}_{doc}",
-                        help=f"Upload {doc}"
-                    )
-                    if file:
-                        uploaded_files[doc] = file
-                        st.success(f"✅ {file.name}")
-    
-    # Process uploaded documents
-    if st.button("🔍 Analyze Documents", type="primary", disabled=not vendor_name or not uploaded_files):
-        if vendor_name and uploaded_files:
-            with st.spinner(f"Processing {len(uploaded_files)} documents for {vendor_name}..."):
-                # Create vendor profile
-                vendor = VendorProfile(vendor_id, vendor_name)
-                
-                # Extract text from all documents
-                document_contents = {}
-                progress_bar = st.progress(0)
-                
-                for idx, (doc_type, file) in enumerate(uploaded_files.items()):
-                    progress_bar.progress((idx + 1) / len(uploaded_files))
-                    st.write(f"📄 Processing: {file.name}")
-                    
-                    text_content = analyzer.document_analyzer.extract_text_from_file(file)
-                    if text_content:
-                        document_contents[file.name] = text_content
-                        vendor.documents[doc_type] = file.name
-                
-                # Analyze documents
-                st.write("🤖 Analyzing with AI...")
-                analysis_results = analyzer.analyze_documents(vendor_id, document_contents)
-                
-                # Store results
-                vendor.scores = analysis_results.get("consolidated_scores", {})
-                vendor.scores["overall"] = analysis_results.get("overall_score", 0)
-                
-                # Save to session state
-                if "vendors" not in st.session_state:
-                    st.session_state.vendors = {}
-                st.session_state.vendors[vendor_id] = vendor
-                st.session_state.current_analysis = analysis_results
-                
-                st.success(f"✅ Analysis complete for {vendor_name}!")
-                st.balloons()
-
-def render_analysis_results(analyzer: UPSRFPAnalyzer):
-    """Render detailed analysis results"""
-    if "current_analysis" not in st.session_state:
-        st.info("📊 No analysis results available. Please upload and analyze vendor documents first.")
+    if "vendors" not in st.session_state or not st.session_state.vendors:
+        st.info("No vendors to evaluate. Please submit vendor proposals first.")
         return
     
-    analysis = st.session_state.current_analysis
+    # Vendor selection
+    vendor_names = {v.vendor_id: v.name for v in st.session_state.vendors.values()}
+    selected_vendor_id = st.selectbox(
+        "Select Vendor to Evaluate",
+        options=list(vendor_names.keys()),
+        format_func=lambda x: vendor_names[x]
+    )
     
-    # Overview metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        overall_score = analysis.get("overall_score", 0)
-        st.metric("Overall Score", f"{overall_score}/100", 
-                 delta=f"{overall_score - 75:.1f} vs benchmark" if overall_score else None)
-    
-    with col2:
-        st.metric("Documents Analyzed", analysis.get("document_count", 0))
-    
-    with col3:
-        high_risks = len(analysis.get("risks", {}).get("high", []))
-        st.metric("High Risks", high_risks, 
-                 delta_color="inverse" if high_risks > 0 else "off")
-    
-    with col4:
-        st.metric("Analysis Date", 
-                 datetime.fromisoformat(analysis.get("analysis_date", datetime.now().isoformat())).strftime("%Y-%m-%d"))
-    
-    # Detailed scoring breakdown
-    st.subheader("📊 Scoring Breakdown")
-    
-    scores = analysis.get("consolidated_scores", {})
-    if scores:
-        # Create radar chart
-        categories = []
-        values = []
+    if selected_vendor_id:
+        vendor = st.session_state.vendors[selected_vendor_id]
         
-        for criteria, score in scores.items():
-            categories.append(criteria.replace("_", " ").title())
-            values.append(score)
+        # Analyze vendor
+        analysis = analyzer.analyze_vendor_proposal(vendor, vendor.documents)
+        
+        # Display evaluation results
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            score = analysis['overall_score']
+            if score >= 85:
+                badge = "score-excellent"
+                label = "EXCELLENT"
+            elif score >= 75:
+                badge = "score-good"
+                label = "GOOD"
+            elif score >= 65:
+                badge = "score-fair"
+                label = "FAIR"
+            else:
+                badge = "score-poor"
+                label = "POOR"
+            
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>Overall Score</h3>
+                <div class="score-badge {badge}">
+                    {score:.1f}/100
+                </div>
+                <p>{label}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            st.metric("Documents", len(vendor.documents))
+        
+        with col3:
+            st.metric("Strengths", len(vendor.strengths))
+        
+        with col4:
+            st.metric("Status", vendor.status)
+        
+        # Detailed scores
+        st.markdown("### Evaluation Scores")
+        
+        # Create radar chart
+        scores = analysis['scores']
+        categories = list(scores.keys())
+        values = list(scores.values())
         
         fig = go.Figure()
         
         fig.add_trace(go.Scatterpolar(
             r=values,
-            theta=categories,
+            theta=[c.replace('_', ' ').title() for c in categories],
             fill='toself',
-            name='Vendor Score',
-            line_color='#351C15',
-            fillcolor='rgba(53, 28, 21, 0.3)'
-        ))
-        
-        # Add benchmark
-        benchmark_values = [75] * len(categories)
-        fig.add_trace(go.Scatterpolar(
-            r=benchmark_values,
-            theta=categories,
-            fill='toself',
-            name='Benchmark',
-            line_color='#FFB500',
-            fillcolor='rgba(255, 181, 0, 0.1)'
+            name=vendor.name,
+            line_color='#3498DB'
         ))
         
         fig.update_layout(
@@ -1012,283 +1016,346 @@ def render_analysis_results(analyzer: UPSRFPAnalyzer):
                     range=[0, 100]
                 )),
             showlegend=True,
-            title="Vendor Performance vs Benchmark"
+            title=f"Vendor Evaluation: {vendor.name}"
         )
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Detailed scores table
-        scores_df = pd.DataFrame([
-            {
-                "Criteria": criteria.replace("_", " ").title(),
-                "Score": score,
-                "Weight": f"{analyzer.evaluation_criteria[criteria]['weight']*100:.0f}%",
-                "Weighted Score": score * analyzer.evaluation_criteria[criteria]['weight']
-            }
-            for criteria, score in scores.items()
-        ])
+        # Evaluation tabs
+        tabs = st.tabs(["📝 Summary", "💪 Strengths", "⚠️ Risks", "💰 Commercial", "📋 Compliance", "💬 Recommendations"])
         
-        st.dataframe(scores_df, use_container_width=True, hide_index=True)
-    
-    # Risk Assessment
-    st.subheader("⚠️ Risk Assessment")
-    
-    risks = analysis.get("risks", {})
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("### 🔴 High Risks")
-        for risk in risks.get("high", []):
-            st.markdown(f"• {risk}")
-        if not risks.get("high"):
-            st.markdown("*No high risks identified*")
-    
-    with col2:
-        st.markdown("### 🟡 Medium Risks")
-        for risk in risks.get("medium", []):
-            st.markdown(f"• {risk}")
-        if not risks.get("medium"):
-            st.markdown("*No medium risks identified*")
-    
-    with col3:
-        st.markdown("### 🟢 Low Risks")
-        for risk in risks.get("low", []):
-            st.markdown(f"• {risk}")
-        if not risks.get("low"):
-            st.markdown("*No low risks identified*")
-    
-    # Key Findings
-    st.subheader("🔍 Key Findings")
-    
-    for doc in analysis.get("documents_analyzed", []):
-        if "analysis" in doc and isinstance(doc["analysis"], dict):
-            with st.expander(f"📄 {doc['name']} ({doc['type']})"):
-                if "key_findings" in doc["analysis"]:
-                    for finding in doc["analysis"]["key_findings"]:
-                        st.write(f"• {finding}")
-    
-    # Export options
-    st.subheader("📥 Export Options")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("📊 Export to Excel"):
-            if "vendors" in st.session_state and st.session_state.vendors:
-                vendor = list(st.session_state.vendors.values())[0]
-                excel_data = analyzer.export_evaluation_report(vendor, analysis)
-                
-                st.download_button(
-                    label="Download Excel Report",
-                    data=excel_data,
-                    file_name=f"vendor_evaluation_{vendor.vendor_id}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-    
-    with col2:
-        if st.button("📄 Generate PDF Report"):
-            st.info("PDF generation coming soon...")
-    
-    with col3:
-        if st.button("📧 Email Report"):
-            st.info("Email functionality coming soon...")
+        with tabs[0]:  # Summary
+            st.markdown("#### Executive Summary")
+            st.write(analysis['executive_summary'])
+            
+            st.markdown("#### Next Steps")
+            for step in analysis['next_steps']:
+                st.write(f"• {step}")
+        
+        with tabs[1]:  # Strengths
+            st.markdown("#### Key Strengths")
+            if vendor.strengths:
+                for strength in vendor.strengths:
+                    st.success(f"✅ {strength}")
+            else:
+                st.info("No significant strengths identified")
+            
+            st.markdown("#### Areas for Improvement")
+            if vendor.weaknesses:
+                for weakness in vendor.weaknesses:
+                    st.warning(f"⚠️ {weakness}")
+            else:
+                st.success("No major weaknesses identified")
+        
+        with tabs[2]:  # Risks
+            st.markdown("#### Risk Assessment")
+            
+            risks = analysis['risks']
+            if risks:
+                for risk in risks:
+                    if risk['level'] == "High":
+                        st.error(f"🔴 **{risk['category']}**: {risk['description']}")
+                    elif risk['level'] == "Medium":
+                        st.warning(f"🟡 **{risk['category']}**: {risk['description']}")
+                    else:
+                        st.info(f"🟢 **{risk['category']}**: {risk['description']}")
+                    
+                    st.caption(f"Mitigation: {risk['mitigation']}")
+            else:
+                st.success("No significant risks identified")
+        
+        with tabs[3]:  # Commercial
+            st.markdown("#### Commercial Evaluation")
+            
+            commercial = analysis['commercial_evaluation']
+            for key, value in commercial.items():
+                st.write(f"**{key.replace('_', ' ').title()}**: {value}")
+        
+        with tabs[4]:  # Compliance
+            st.markdown("#### Compliance Status")
+            
+            compliance = analysis['compliance_status']
+            
+            cols = st.columns(3)
+            for idx, (item, status) in enumerate(compliance.items()):
+                col = cols[idx % 3]
+                with col:
+                    if status == "Compliant":
+                        st.success(f"✅ {item.upper()}: {status}")
+                    elif status == "Missing":
+                        st.error(f"❌ {item.upper()}: {status}")
+                    else:
+                        st.warning(f"⚠️ {item.upper()}: {status}")
+        
+        with tabs[5]:  # Recommendations
+            st.markdown("#### Recommendations")
+            
+            for rec in analysis['recommendations']:
+                st.info(f"💡 {rec}")
+        
+        # Export options
+        st.markdown("### Export Options")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("📊 Export to Excel"):
+                st.success("Excel report generated!")
+        
+        with col2:
+            if st.button("📄 Generate PDF"):
+                st.success("PDF report generated!")
+        
+        with col3:
+            if st.button("📧 Email Report"):
+                st.success("Report sent via email!")
 
-def render_vendor_comparison(analyzer: UPSRFPAnalyzer):
+def render_vendor_comparison(analyzer: RFPAnalyzer):
     """Render vendor comparison matrix"""
-    if "vendors" not in st.session_state or not st.session_state.vendors:
-        st.info("📊 No vendors to compare. Please analyze at least one vendor first.")
+    st.subheader("📈 Vendor Comparison")
+    
+    if "vendors" not in st.session_state or len(st.session_state.vendors) < 2:
+        st.info("Need at least 2 vendors for comparison. Please add more vendors.")
         return
     
-    st.subheader("📈 Vendor Comparison Matrix")
+    vendors = list(st.session_state.vendors.values())
     
-    # Generate comparison data
-    comparison_df = analyzer.generate_vendor_comparison(st.session_state.vendors)
-    
-    if not comparison_df.empty:
-        # Highlight best scores
-        def highlight_max(s):
-            is_max = s == s.max()
-            return ['background-color: #dcfce7' if v else '' for v in is_max]
-        
-        styled_df = comparison_df.style.apply(highlight_max, subset=[col for col in comparison_df.columns if 'Score' in col or col in [c.replace("_", " ").title() for c in analyzer.evaluation_criteria.keys()]])
-        
-        st.dataframe(styled_df, use_container_width=True)
-        
-        # Comparison chart
-        st.subheader("📊 Visual Comparison")
-        
-        # Prepare data for grouped bar chart
-        vendors = comparison_df["Vendor"].tolist()
-        criteria_cols = [c.replace("_", " ").title() for c in analyzer.evaluation_criteria.keys()]
-        
-        fig = go.Figure()
-        
-        for vendor in vendors:
-            vendor_data = comparison_df[comparison_df["Vendor"] == vendor]
-            scores = []
-            for col in criteria_cols:
-                if col in vendor_data.columns:
-                    scores.append(vendor_data[col].values[0])
-                else:
-                    scores.append(0)
-            
-            fig.add_trace(go.Bar(
-                name=vendor,
-                x=criteria_cols,
-                y=scores
-            ))
-        
-        fig.update_layout(
-            title="Vendor Score Comparison",
-            xaxis_title="Evaluation Criteria",
-            yaxis_title="Score",
-            barmode='group',
-            height=500
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Ranking
-        st.subheader("🏆 Vendor Ranking")
-        
-        ranking_df = comparison_df[["Vendor", "Overall Score"]].sort_values("Overall Score", ascending=False)
-        ranking_df["Rank"] = range(1, len(ranking_df) + 1)
-        
-        for idx, row in ranking_df.iterrows():
-            rank = row["Rank"]
-            vendor = row["Vendor"]
-            score = row["Overall Score"]
-            
-            if rank == 1:
-                emoji = "🥇"
-                color = "#FFD700"
-            elif rank == 2:
-                emoji = "🥈"
-                color = "#C0C0C0"
-            elif rank == 3:
-                emoji = "🥉"
-                color = "#CD7F32"
-            else:
-                emoji = "📊"
-                color = "#FFFFFF"
-            
-            st.markdown(f"""
-            <div style="background: {color}20; padding: 10px; border-radius: 5px; margin: 5px 0;">
-                {emoji} <strong>Rank {rank}:</strong> {vendor} - Score: {score}/100
-            </div>
-            """, unsafe_allow_html=True)
-
-def render_qa_interface(analyzer: UPSRFPAnalyzer):
-    """Render Q&A interface for vendor clarifications"""
-    st.subheader("💬 Vendor Q&A Management")
-    
-    tab1, tab2 = st.tabs(["Ask Questions", "Q&A History"])
-    
-    with tab1:
-        if "vendors" in st.session_state and st.session_state.vendors:
-            vendor_names = [v.name for v in st.session_state.vendors.values()]
-            selected_vendor = st.selectbox("Select Vendor", vendor_names)
-            
-            question_category = st.selectbox(
-                "Question Category",
-                ["Technical", "Commercial", "Compliance", "Operations", "General"]
-            )
-            
-            question = st.text_area("Your Question", height=100)
-            
-            if st.button("Send Question", disabled=not question):
-                # In production, this would send to vendor
-                st.success(f"✅ Question sent to {selected_vendor}")
-                
-                # Store in Q&A history
-                if "qa_history" not in st.session_state:
-                    st.session_state.qa_history = []
-                
-                st.session_state.qa_history.append({
-                    "vendor": selected_vendor,
-                    "category": question_category,
-                    "question": question,
-                    "timestamp": datetime.now(),
-                    "status": "Pending",
-                    "response": None
-                })
-        else:
-            st.info("No vendors available. Please add vendors first.")
-    
-    with tab2:
-        if "qa_history" in st.session_state and st.session_state.qa_history:
-            for qa in st.session_state.qa_history:
-                with st.expander(f"{qa['vendor']} - {qa['category']} - {qa['timestamp'].strftime('%Y-%m-%d %H:%M')}"):
-                    st.write(f"**Question:** {qa['question']}")
-                    st.write(f"**Status:** {qa['status']}")
-                    if qa['response']:
-                        st.write(f"**Response:** {qa['response']}")
-        else:
-            st.info("No Q&A history available.")
-
-def render_sidebar(analyzer: UPSRFPAnalyzer):
-    """Render sidebar with navigation and tools"""
-    with st.sidebar:
-        st.header("🛠️ Tools & Navigation")
-        
-        # Quick Stats
-        st.subheader("📊 Quick Stats")
-        
-        vendor_count = len(st.session_state.get("vendors", {}))
-        st.metric("Active Vendors", vendor_count)
-        
-        if "current_analysis" in st.session_state:
-            st.metric("Last Analysis", 
-                     datetime.fromisoformat(st.session_state.current_analysis.get("analysis_date", 
-                     datetime.now().isoformat())).strftime("%H:%M"))
-        
-        # Navigation
-        st.subheader("📍 Navigation")
-        
-        if st.button("🏠 Dashboard", use_container_width=True):
-            st.session_state.current_page = "dashboard"
-        
-        if st.button("👥 Vendors", use_container_width=True):
-            st.session_state.current_page = "vendors"
-        
-        if st.button("📊 Analytics", use_container_width=True):
-            st.session_state.current_page = "analytics"
-        
-        if st.button("📋 Workflow", use_container_width=True):
-            st.session_state.current_page = "workflow"
-        
-        if st.button("⚙️ Settings", use_container_width=True):
-            st.session_state.current_page = "settings"
-        
-        # Document Templates
-        st.subheader("📄 Templates")
-        
-        templates = {
-            "RFP Template": "rfp_template.docx",
-            "SOW Template": "sow_template.docx",
-            "Evaluation Matrix": "evaluation_matrix.xlsx",
-            "Contract Template": "contract_template.docx"
+    # Comparison table
+    comparison_data = []
+    for vendor in vendors:
+        row = {
+            "Vendor": vendor.name,
+            "Overall Score": vendor.overall_score,
+            "Status": vendor.status,
+            "Submission Date": vendor.submission_date.strftime("%Y-%m-%d") if vendor.submission_date else "N/A"
         }
         
-        for name, file in templates.items():
-            if st.button(f"📥 {name}", use_container_width=True):
-                st.info(f"Template {file} would be downloaded in production")
+        # Add individual scores
+        for key, value in vendor.scores.items():
+            row[key.replace('_', ' ').title()] = value
         
-        # Help & Support
-        st.subheader("❓ Help & Support")
+        comparison_data.append(row)
+    
+    df = pd.DataFrame(comparison_data)
+    
+    # Highlight best scores
+    def highlight_max(s):
+        if s.dtype in ['float64', 'int64']:
+            is_max = s == s.max()
+            return ['background-color: #d4edda' if v else '' for v in is_max]
+        return ['' for _ in s]
+    
+    styled_df = df.style.apply(highlight_max)
+    st.dataframe(styled_df, use_container_width=True)
+    
+    # Comparison chart
+    fig = go.Figure()
+    
+    for vendor in vendors[:5]:  # Limit to 5 vendors for clarity
+        categories = [k.replace('_', ' ').title() for k in vendor.scores.keys()]
+        values = list(vendor.scores.values())
         
-        with st.expander("User Guide"):
-            st.write("""
-            **Quick Start:**
-            1. Upload vendor documents
-            2. Run AI analysis
-            3. Review scores
-            4. Compare vendors
-            5. Make selection
+        fig.add_trace(go.Scatterpolar(
+            r=values,
+            theta=categories,
+            fill='toself',
+            name=vendor.name
+        ))
+    
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100]
+            )),
+        showlegend=True,
+        title="Vendor Comparison Radar"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Ranking
+    st.markdown("### 🏆 Vendor Ranking")
+    
+    ranked_vendors = sorted(vendors, key=lambda x: x.overall_score, reverse=True)
+    
+    for idx, vendor in enumerate(ranked_vendors[:5], 1):
+        if idx == 1:
+            emoji = "🥇"
+        elif idx == 2:
+            emoji = "🥈"
+        elif idx == 3:
+            emoji = "🥉"
+        else:
+            emoji = "📊"
+        
+        st.markdown(f"""
+        <div class="vendor-card">
+            <h4>{emoji} Rank {idx}: {vendor.name}</h4>
+            <p>Score: {vendor.overall_score:.1f}/100 | Status: {vendor.status}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+def render_qa_chat(analyzer: RFPAnalyzer):
+    """Render Q&A chat interface"""
+    st.subheader("💬 Intelligent Q&A Assistant")
+    
+    # Initialize chat history
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    
+    # Quick questions
+    st.markdown("#### Quick Questions")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    quick_questions = [
+        "What is the RFP timeline?",
+        "How many vendors submitted?",
+        "Who is the top vendor?",
+        "What are the key requirements?"
+    ]
+    
+    for idx, question in enumerate(quick_questions):
+        col = [col1, col2, col3, col4][idx]
+        with col:
+            if st.button(question, key=f"quick_{idx}"):
+                # Add to chat
+                st.session_state.chat_history.append({
+                    "role": "user",
+                    "content": question
+                })
+                
+                # Generate response
+                if question == "What is the RFP timeline?":
+                    response = f"The RFP was issued on {analyzer.current_rfp['issue_date'].strftime('%Y-%m-%d')} and is due on {analyzer.current_rfp['due_date'].strftime('%Y-%m-%d')}. Total duration: 28 days."
+                elif question == "How many vendors submitted?":
+                    vendor_count = len(st.session_state.get('vendors', {}))
+                    response = f"Currently {vendor_count} vendor(s) have submitted proposals."
+                elif question == "Who is the top vendor?":
+                    if st.session_state.get('vendors'):
+                        top_vendor = max(st.session_state.vendors.values(), key=lambda x: x.overall_score)
+                        response = f"The top vendor is {top_vendor.name} with a score of {top_vendor.overall_score:.1f}/100."
+                    else:
+                        response = "No vendors have submitted proposals yet."
+                else:
+                    response = f"Key requirements include: {', '.join(analyzer.current_rfp['services_required'][:3])}"
+                
+                st.session_state.chat_history.append({
+                    "role": "assistant",
+                    "content": response
+                })
+                st.rerun()
+    
+    # Chat interface
+    st.markdown("#### Ask a Question")
+    
+    with st.form("chat_form"):
+        user_input = st.text_area("Your question:", height=100)
+        submitted = st.form_submit_button("Send")
+        
+        if submitted and user_input:
+            # Add to chat history
+            st.session_state.chat_history.append({
+                "role": "user",
+                "content": user_input
+            })
+            
+            # Generate response (mock for demo)
+            response = f"Thank you for your question about '{user_input[:50]}...'. Based on the RFP documentation and vendor submissions, I can provide detailed insights. The current workflow is {analyzer.get_workflow_progress()}% complete."
+            
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": response
+            })
+            st.rerun()
+    
+    # Display chat history
+    st.markdown("#### Conversation History")
+    
+    for message in st.session_state.chat_history[-10:]:  # Show last 10 messages
+        if message['role'] == 'user':
+            st.markdown(f"""
+            <div class="chat-message user-message">
+                <strong>You:</strong> {message['content']}
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="chat-message assistant-message">
+                <strong>Assistant:</strong> {message['content']}
+            </div>
+            """, unsafe_allow_html=True)
+    
+    if st.button("Clear Chat History"):
+        st.session_state.chat_history = []
+        st.rerun()
+
+def render_sidebar(analyzer: RFPAnalyzer):
+    """Render sidebar navigation"""
+    with st.sidebar:
+        st.markdown("### 🎯 RFP Management")
+        
+        # RFP Details
+        st.markdown("#### Current RFP")
+        st.info(f"**ID:** {analyzer.current_rfp['rfp_id']}")
+        st.caption(analyzer.current_rfp['title'])
+        
+        # Quick Stats
+        st.markdown("#### 📊 Quick Stats")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            vendor_count = len(st.session_state.get('vendors', {}))
+            st.metric("Vendors", vendor_count)
+        
+        with col2:
+            progress = analyzer.get_workflow_progress()
+            st.metric("Progress", f"{progress}%")
+        
+        # Timeline
+        st.markdown("#### ⏱️ Timeline")
+        st.write(f"**Issued:** {analyzer.current_rfp['issue_date'].strftime('%b %d')}")
+        st.write(f"**Due:** {analyzer.current_rfp['due_date'].strftime('%b %d')}")
+        
+        days_remaining = (analyzer.current_rfp['due_date'] - datetime.now()).days
+        if days_remaining > 0:
+            st.success(f"📅 {days_remaining} days remaining")
+        else:
+            st.error("⚠️ RFP deadline passed")
+        
+        # Navigation
+        st.markdown("---")
+        st.markdown("#### 📍 Navigation")
+        
+        pages = {
+            "workflow": "📋 Workflow",
+            "upload": "📤 Documents",
+            "evaluation": "📊 Evaluation",
+            "comparison": "📈 Comparison",
+            "qa": "💬 Q&A Assistant"
+        }
+        
+        for page_id, page_name in pages.items():
+            if st.button(page_name, use_container_width=True, key=f"nav_{page_id}"):
+                st.session_state.current_page = page_id
+                st.rerun()
+        
+        # Help
+        st.markdown("---")
+        with st.expander("❓ Help"):
+            st.markdown("""
+            **Quick Guide:**
+            1. Start workflow stages
+            2. Upload RFP documents
+            3. Receive vendor proposals
+            4. Evaluate submissions
+            5. Compare vendors
+            6. Make selection
+            7. Finalize contract
             
             **Support:**
-            - Email: rfp-support@ups.com
+            - Email: rfp-support@company.com
             - Phone: 1-800-RFP-HELP
             """)
 
@@ -1298,14 +1365,15 @@ def render_sidebar(analyzer: UPSRFPAnalyzer):
 
 def main():
     """Main application entry point"""
-    # Initialize analyzer
-    analyzer = UPSRFPAnalyzer()
+    
+    # Initialize
+    analyzer = RFPAnalyzer()
     
     # Initialize session state
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = "dashboard"
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = 'workflow'
     
-    if "vendors" not in st.session_state:
+    if 'vendors' not in st.session_state:
         st.session_state.vendors = {}
     
     # Render header
@@ -1314,213 +1382,56 @@ def main():
     # Render sidebar
     render_sidebar(analyzer)
     
-    # Main content based on current page
-    if st.session_state.current_page == "dashboard":
-        # Dashboard view
-        st.header("📊 Executive Dashboard")
+    # Main content area
+    if st.session_state.current_page == 'workflow':
+        st.header("📋 RFP Workflow Management")
+        render_workflow_timeline(analyzer)
         
-        # Workflow status
-        render_workflow_status(analyzer)
-        
-        # Key metrics
-        st.subheader("📈 Key Metrics")
-        
-        col1, col2, col3, col4 = st.columns(4)
+        # Workflow actions
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("Active RFPs", 3, delta="+1 this week")
+            if st.button("⏭️ Move to Next Stage", type="primary"):
+                success, message = analyzer.move_to_next_stage()
+                if success:
+                    st.success(message)
+                    st.rerun()
+                else:
+                    st.error(message)
         
         with col2:
-            st.metric("Vendors Evaluated", len(st.session_state.vendors), 
-                     delta=f"+{len(st.session_state.vendors)} today")
+            if st.button("📊 View Workflow Report"):
+                st.info("Generating workflow report...")
         
         with col3:
-            avg_score = 0
-            if st.session_state.vendors:
-                scores = [v.scores.get("overall", 0) for v in st.session_state.vendors.values()]
-                avg_score = sum(scores) / len(scores) if scores else 0
-            st.metric("Avg Vendor Score", f"{avg_score:.1f}/100")
-        
-        with col4:
-            st.metric("Days to Decision", 12, delta="-3 vs avg")
-        
-        # Recent activity
-        st.subheader("📅 Recent Activity")
-        
-        activities = [
-            {"time": "2 hours ago", "action": "Document uploaded", "details": "ABC Logistics - SOW"},
-            {"time": "3 hours ago", "action": "Analysis completed", "details": "XYZ Transport - Full evaluation"},
-            {"time": "5 hours ago", "action": "Q&A sent", "details": "Technical clarification to DEF Warehousing"},
-            {"time": "Yesterday", "action": "Vendor added", "details": "GHI Supply Chain Solutions"}
-        ]
-        
-        for activity in activities[:5]:
-            st.markdown(f"""
-            <div class="timeline-item">
-                <div class="timeline-dot"></div>
-                <strong>{activity['time']}</strong> - {activity['action']}<br>
-                <small>{activity['details']}</small>
-            </div>
-            """, unsafe_allow_html=True)
+            if st.button("🔄 Reset Workflow"):
+                if st.checkbox("Confirm reset"):
+                    analyzer.workflow_stages = analyzer._initialize_workflow()
+                    st.success("Workflow reset!")
+                    st.rerun()
     
-    elif st.session_state.current_page == "vendors":
-        # Vendor management view
-        render_vendor_management(analyzer)
+    elif st.session_state.current_page == 'upload':
+        st.header("📤 Document Management")
+        render_document_upload(analyzer)
     
-    elif st.session_state.current_page == "analytics":
-        # Analytics view
-        st.header("📊 Analytics & Insights")
-        
-        if st.session_state.vendors:
-            # Vendor comparison
-            render_vendor_comparison(analyzer)
-            
-            # Trend analysis
-            st.subheader("📈 Trend Analysis")
-            
-            # Sample trend data
-            dates = pd.date_range(start='2024-01-01', periods=12, freq='M')
-            trend_data = pd.DataFrame({
-                'Date': dates,
-                'Avg Score': [70, 72, 71, 74, 76, 75, 78, 80, 79, 82, 84, 85],
-                'Vendors': [5, 6, 6, 7, 8, 8, 9, 10, 11, 12, 13, 14],
-                'RFPs': [2, 2, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7]
-            })
-            
-            fig = make_subplots(
-                rows=2, cols=2,
-                subplot_titles=('Average Vendor Score', 'Number of Vendors', 
-                              'Active RFPs', 'Score Distribution')
-            )
-            
-            # Avg Score
-            fig.add_trace(
-                go.Scatter(x=trend_data['Date'], y=trend_data['Avg Score'], 
-                          mode='lines+markers', name='Avg Score'),
-                row=1, col=1
-            )
-            
-            # Vendor Count
-            fig.add_trace(
-                go.Bar(x=trend_data['Date'], y=trend_data['Vendors'], name='Vendors'),
-                row=1, col=2
-            )
-            
-            # RFP Count
-            fig.add_trace(
-                go.Scatter(x=trend_data['Date'], y=trend_data['RFPs'], 
-                          mode='lines+markers', name='RFPs', line=dict(color='green')),
-                row=2, col=1
-            )
-            
-            # Score Distribution
-            if st.session_state.vendors:
-                scores = [v.scores.get("overall", 0) for v in st.session_state.vendors.values()]
-                fig.add_trace(
-                    go.Histogram(x=scores, name='Score Distribution', nbinsx=10),
-                    row=2, col=2
-                )
-            
-            fig.update_layout(height=700, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No data available for analytics. Please add and analyze vendors first.")
+    elif st.session_state.current_page == 'evaluation':
+        st.header("📊 Vendor Evaluation")
+        render_vendor_evaluation(analyzer)
     
-    elif st.session_state.current_page == "workflow":
-        # Workflow management
-        st.header("📋 Workflow Management")
-        
-        # Detailed workflow stages
-        for stage_id, stage in analyzer.workflow_stages.items():
-            with st.expander(f"{stage.name}", expanded=(stage.status == "active")):
-                col1, col2 = st.columns([3, 1])
-                
-                with col1:
-                    st.write(f"**Description:** {stage.description}")
-                    st.write(f"**Required Documents:**")
-                    for doc in stage.required_docs:
-                        st.write(f"  • {doc}")
-                    st.write(f"**Expected Outputs:**")
-                    for output in stage.outputs:
-                        st.write(f"  • {output}")
-                
-                with col2:
-                    status_color = {
-                        "completed": "🟢",
-                        "active": "🟡",
-                        "pending": "⚪"
-                    }
-                    st.write(f"**Status:** {status_color.get(stage.status, '⚪')} {stage.status.title()}")
-                    
-                    if stage.status == "pending":
-                        if st.button(f"Start Stage", key=f"start_{stage_id}"):
-                            stage.status = "active"
-                            st.rerun()
-                    elif stage.status == "active":
-                        if st.button(f"Complete Stage", key=f"complete_{stage_id}"):
-                            stage.status = "completed"
-                            st.rerun()
+    elif st.session_state.current_page == 'comparison':
+        st.header("📈 Vendor Comparison")
+        render_vendor_comparison(analyzer)
     
-    elif st.session_state.current_page == "settings":
-        # Settings page
-        st.header("⚙️ Settings")
-        
-        tab1, tab2, tab3 = st.tabs(["General", "Evaluation Criteria", "API Configuration"])
-        
-        with tab1:
-            st.subheader("General Settings")
-            
-            st.text_input("Organization Name", value="UPS Global Logistics & Distribution")
-            st.text_input("Department", value="Procurement")
-            st.selectbox("Default Currency", ["USD", "EUR", "GBP", "CNY"])
-            st.selectbox("Language", ["English", "Spanish", "Chinese", "French"])
-            
-            if st.button("Save Settings"):
-                st.success("✅ Settings saved successfully!")
-        
-        with tab2:
-            st.subheader("Evaluation Criteria Weights")
-            
-            total_weight = 0
-            for criteria, details in analyzer.evaluation_criteria.items():
-                weight = st.slider(
-                    criteria.replace("_", " ").title(),
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=details["weight"],
-                    step=0.05,
-                    key=f"weight_{criteria}"
-                )
-                total_weight += weight
-            
-            if abs(total_weight - 1.0) > 0.01:
-                st.warning(f"⚠️ Total weight must equal 100% (currently {total_weight*100:.1f}%)")
-            else:
-                st.success(f"✅ Total weight: {total_weight*100:.1f}%")
-            
-            if st.button("Update Weights"):
-                st.success("✅ Evaluation weights updated!")
-        
-        with tab3:
-            st.subheader("API Configuration")
-            
-            api_key = st.text_input("Claude API Key", type="password", 
-                                   placeholder="sk-ant-api03-...")
-            
-            if st.button("Test Connection"):
-                with st.spinner("Testing API connection..."):
-                    time.sleep(1)  # Simulate test
-                    if api_key:
-                        st.success("✅ API connection successful!")
-                    else:
-                        st.error("❌ Please enter a valid API key")
+    elif st.session_state.current_page == 'qa':
+        st.header("💬 Q&A Assistant")
+        render_qa_chat(analyzer)
     
     # Footer
     st.markdown("---")
     st.markdown("""
-    <div style="text-align: center; color: #666; font-size: 0.9rem;">
-        <p>© 2025 UPS Global Logistics & Distribution | RFP Vendor Management System v2.0</p>
-        <p>Powered by Claude AI | Built with Streamlit</p>
+    <div style="text-align: center; color: #666;">
+        <p>© 2025 RFP Vendor Management System | Powered by AI</p>
     </div>
     """, unsafe_allow_html=True)
 
